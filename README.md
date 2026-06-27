@@ -61,8 +61,21 @@ sudo apt -f install     # résout les dépendances manquantes
 Pour installer sur **arm64** :
 
 ```bash
-make clean && make deb   # sur une machine arm64, le .deb sera _arm64.deb
+# Sur une machine arm64 :
+make clean && make deb   # le .deb sera _arm64.deb
 ```
+
+Le `debian/rules` publie avec `--runtime linux-x64` pour
+amd64. Pour produire un .deb arm64, override :
+
+```bash
+make deb POSTIT_RUNTIME=linux-arm64
+```
+
+(le paramètre est exposé par `debian/rules` ; bump à ajouter si
+besoin). À noter : **un seul runtime par build** — le `--runtime`
+exclut les autres plateformes, donc le .deb est portable mais
+mono-architecture.
 
 ## Vérification
 

@@ -21,6 +21,10 @@
 
 POSTIT_GIT_URL ?= https://github.com/pazof/yavsc.git
 POSTIT_GIT_TAG ?= 1.0.0
+# Runtime identifier passed to `dotnet publish --runtime`. Override
+# at build time for non-amd64 targets:
+#   make deb POSTIT_RUNTIME=linux-arm64
+POSTIT_RUNTIME ?= linux-x64
 POSTIT_DESKTOP_PROJECT := src/PostIt/PostIt.Desktop/PostIt.Desktop.csproj
 POSTIT_BUILD_DIR := $(CURDIR)/build
 POSTIT_SRC_DIR := $(POSTIT_BUILD_DIR)/yavsc-src
@@ -56,7 +60,7 @@ override_dh_auto_build:
 	dotnet publish $(POSTIT_SRC_DIR)/$(POSTIT_DESKTOP_PROJECT) \
 	    -c Release \
 	    --self-contained false \
-	    --runtime linux-x64 \
+	    --runtime $(POSTIT_RUNTIME) \
 	    -p:PublishReadyToRun=false \
 	    -o $(POSTIT_BUILD_DIR)/postit-app
 

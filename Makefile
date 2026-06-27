@@ -11,18 +11,20 @@
 #                   debugging the publish step.
 #
 # Environment overrides (or pass on the make command line):
-#   POSTIT_GIT_URL  default: https://github.com/pazof/yavsc.git
-#   POSTIT_GIT_TAG  default: 1.0.0
-#   POSTIT_OUT_DIR  default: $(CURDIR)/..    (artifacts land here)
+#   POSTIT_GIT_URL   default: https://github.com/pazof/yavsc.git
+#   POSTIT_GIT_TAG   default: 1.0.0
+#   POSTIT_RUNTIME   default: linux-x64  (override to linux-arm64 etc.)
+#   POSTIT_OUT_DIR   default: $(CURDIR)/..    (artifacts land here)
 
 POSTIT_GIT_URL ?= https://github.com/pazof/yavsc.git
 POSTIT_GIT_TAG ?= 1.0.0
+POSTIT_RUNTIME ?= linux-x64
 POSTIT_OUT_DIR ?= $(CURDIR)/..
 
 .PHONY: deb clean source
 
 deb:
-	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) \
+	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) \
 	    dpkg-buildpackage -us -uc -b
 	mv ../postit_*$(POSTIT_GIT_TAG)*.deb $(POSTIT_OUT_DIR)/ 2>/dev/null || \
 	    mv ../postit_*.deb $(POSTIT_OUT_DIR)/ || true
