@@ -3,7 +3,6 @@ Section: x11
 Priority: optional
 Maintainer: Paul Schneider <paul@pschneider.fr>
 Build-Depends:
- debhelper-compat (= 13),
  dotnet-sdk-10.0 (>= 10.0.0) | dotnet-sdk-10.0,
  imagemagick,
  librsvg2-bin,
