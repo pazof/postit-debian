@@ -4,104 +4,99 @@
 #
 # Pipeline:
 #   1. Clone pazof/yavsc at POSTIT_GIT_TAG into a clean working
-#      tree under $(BUILDDIR)/yavsc-src.
-#   2. Restore + publish src/PostIt/PostIt.Desktop as a
-#      linux-x64, framework-dependent (not self-contained)
-#      assembly tree into $(BUILDDIR)/postit-app.
-#   3. Render the icon at the hicolor sizes (16, 32, 48,
-#      64, 128, 256) from src/PostIt/PostIt/Assets/Icon.png,
-#      plus the SVG from the same directory as the scalable
-#      form.
-#   4. Lay out the package tree:
+#      tree under build/yavsc-src.
+#   2. dotnet publish src/PostIt/PostIt.Desktop — framework-
+#      dependent (not self-contained), into build/postit-app.
+#   3. Render the icon at the hicolor sizes from
+#      src/PostIt/PostIt/Assets/Icon.png, plus the SVG as the
+#      scalable form.
+#   4. Stage everything under debian/tmp/ — the layout dh_install
+#      expects:
 #         /usr/lib/postit/           (managed assemblies)
 #         /usr/bin/postit            (wrapper script)
 #         /usr/share/applications/   (postit.desktop)
 #         /usr/share/icons/hicolor/  (icons)
-#   5. Run dh to install, fix permissions, build the binary
-#      package.
-#
-# Override POSTIT_GIT_TAG or POSTIT_GIT_URL on the make command
-# line to build a different upstream revision:
-#
-#   make deb POSTIT_GIT_TAG=1.0.1
-#   make deb POSTIT_GIT_URL=https://github.com/fork/yavsc.git
+#   5. dh_install moves it all into debian/postit/ and the rest
+#      of the dh_* helpers assemble the .deb.
 
 POSTIT_GIT_URL ?= https://github.com/pazof/yavsc.git
 POSTIT_GIT_TAG ?= 1.0.0
 POSTIT_DESKTOP_PROJECT := src/PostIt/PostIt.Desktop/PostIt.Desktop.csproj
-POSTIT_ASSEMBLY_NAME := PostIt.Desktop
-POSTIT_APP_DIR := $(CURDIR)/debian/postit
-POSTIT_LIB_DIR := $(POSTIT_APP_DIR)/usr/lib/postit
-POSTIT_BIN_DIR := $(POSTIT_APP_DIR)/usr/bin
-POSTIT_SHARE_DIR := $(POSTIT_APP_DIR)/usr/share
 POSTIT_BUILD_DIR := $(CURDIR)/build
 POSTIT_SRC_DIR := $(POSTIT_BUILD_DIR)/yavsc-src
+POSTIT_TMP := $(CURDIR)/debian/tmp
+POSTIT_TMP_LIB := $(POSTIT_TMP)/usr/lib/postit
+POSTIT_TMP_BIN := $(POSTIT_TMP)/usr/bin
+POSTIT_TMP_SHARE := $(POSTIT_TMP)/usr/share
 
 ICON_SIZES := 16 32 48 64 128 256
 
 %:
 	dh $@
 
-# dh_auto_clean: nothing to do (we don't have a Debian source
-# tree yet at clean time, we fetch it in override_dh_auto_build).
-
 override_dh_auto_clean:
-	rm -rf $(POSTIT_BUILD_DIR)
+	rm -rf $(POSTIT_BUILD_DIR) $(POSTIT_TMP)
 
 override_dh_auto_build:
 	# 1. Fetch the upstream source.
 	mkdir -p $(POSTIT_BUILD_DIR)
-	git clone --depth=1 --branch $(POSTIT_GIT_TAG) \
-	    $(POSTIT_GIT_URL) $(POSTIT_SRC_DIR)
+	if [ -d $(POSTIT_SRC_DIR) ]; then \
+	    git -C $(POSTIT_SRC_DIR) fetch --depth=1 origin $(POSTIT_GIT_TAG); \
+	    git -C $(POSTIT_SRC_DIR) reset --hard $(POSTIT_GIT_TAG); \
+	else \
+	    git clone --depth=1 --branch $(POSTIT_GIT_TAG) \
+	        $(POSTIT_GIT_URL) $(POSTIT_SRC_DIR); \
+	fi
 
 	# 2. Publish PostIt.Desktop for the host architecture.
 	#    --self-contained false : rely on the system .NET
 	#    runtime (declared in Depends: in debian/control).
 	#    -p:PublishReadyToRun=false : avoid R2R which inflates
 	#    the binary for marginal startup gain on a desktop GUI.
-	cd $(POSTIT_SRC_DIR) && \
-	    dotnet publish $(POSTIT_DESKTOP_PROJECT) \
-	        -c Release \
-	        --self-contained false \
-	        -p:PublishReadyToRun=false \
-	        -o $(POSTIT_BUILD_DIR)/postit-app
+	dotnet publish $(POSTIT_SRC_DIR)/$(POSTIT_DESKTOP_PROJECT) \
+	    -c Release \
+	    --self-contained false \
+	    --runtime linux-x64 \
+	    -p:PublishReadyToRun=false \
+	    -o $(POSTIT_BUILD_DIR)/postit-app
 
-	# 3. Lay out the binary tree.
-	mkdir -p $(POSTIT_LIB_DIR)
-	cp -r $(POSTIT_BUILD_DIR)/postit-app/. $(POSTIT_LIB_DIR)/
-	# PostIt.Desktop.dll is the entry assembly; rename or symlink
-	# for clarity (the wrapper references PostIt.Desktop.dll).
-	ls $(POSTIT_LIB_DIR)/ | head -20
-
-	mkdir -p $(POSTIT_BIN_DIR)
-	cp $(CURDIR)/debian/postit.wrapper $(POSTIT_BIN_DIR)/postit
-	chmod 0755 $(POSTIT_BIN_DIR)/postit
-
-	# 4. Icons.
-	mkdir -p $(POSTIT_SHARE_DIR)/applications
-	cp $(CURDIR)/debian/postit.desktop $(POSTIT_SHARE_DIR)/applications/
-
-	mkdir -p $(POSTIT_SHARE_DIR)/icons/hicolor/scalable/apps
-	cp $(POSTIT_SRC_DIR)/src/PostIt/PostIt/Assets/yavsc-logo.svg \
-	    $(POSTIT_SHARE_DIR)/icons/hicolor/scalable/apps/postit.svg
-
-	for size in $(ICON_SIZES); do \
-	    mkdir -p $(POSTIT_SHARE_DIR)/icons/hicolor/$${size}x$${size}/apps; \
-	    convert $(POSTIT_SRC_DIR)/src/PostIt/PostIt/Assets/Icon.png \
-	        -resize $${size}x$${size} \
-	        $(POSTIT_SHARE_DIR)/icons/hicolor/$${size}x$${size}/apps/postit.png; \
-	done
 
 override_dh_auto_test:
 	# No upstream test suite for PostIt.Desktop at this stage
-	# (the Yavsc.Org.Tests project is for the web front, not the
-	# desktop client). Build smoke is sufficient for the package.
-
-override_dh_install:
-	dh_install
+	# (Yavsc.Org.Tests covers the web front, not the desktop
+	# client). Build smoke is sufficient for the package.
 
 override_dh_shlibdeps:
 	dh_shlibdeps
 
 override_dh_strip:
 	dh_strip --exclude=.pdb
+
+
+define stage_postit
+	mkdir -p $(POSTIT_TMP_LIB)
+	cp -r $(POSTIT_BUILD_DIR)/postit-app/. $(POSTIT_TMP_LIB)/
+
+	mkdir -p $(POSTIT_TMP_BIN)
+	cp $(CURDIR)/debian/postit.wrapper $(POSTIT_TMP_BIN)/postit
+	chmod 0755 $(POSTIT_TMP_BIN)/postit
+
+	mkdir -p $(POSTIT_TMP_SHARE)/applications
+	cp $(CURDIR)/debian/postit.desktop \
+	    $(POSTIT_TMP_SHARE)/applications/postit.desktop
+
+	mkdir -p $(POSTIT_TMP_SHARE)/icons/hicolor/scalable/apps
+	cp $(POSTIT_SRC_DIR)/src/PostIt/PostIt/Assets/yavsc-logo.svg \
+	    $(POSTIT_TMP_SHARE)/icons/hicolor/scalable/apps/postit.svg
+
+	for size in $(ICON_SIZES); do \
+	    mkdir -p $(POSTIT_TMP_SHARE)/icons/hicolor/$${size}x$${size}/apps; \
+	    convert $(POSTIT_SRC_DIR)/src/PostIt/PostIt/Assets/Icon.png \
+	        -resize $${size}x$${size} \
+	        $(POSTIT_TMP_SHARE)/icons/hicolor/$${size}x$${size}/apps/postit.png; \
+	done
+endef
+
+override_dh_install:
+	$(call stage_postit)
+	dh_install
