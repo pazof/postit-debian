@@ -1,0 +1,10 @@
+debian/tmp/usr/lib/postit/* usr/lib/postit/
+debian/tmp/usr/bin/postit usr/bin/
+debian/tmp/usr/share/applications/postit.desktop usr/share/applications/
+debian/tmp/usr/share/icons/hicolor/16x16/apps/postit.png usr/share/icons/hicolor/16x16/apps/
+debian/tmp/usr/share/icons/hicolor/32x32/apps/postit.png usr/share/icons/hicolor/32x32/apps/
+debian/tmp/usr/share/icons/hicolor/48x48/apps/postit.png usr/share/icons/hicolor/48x48/apps/
+debian/tmp/usr/share/icons/hicolor/64x64/apps/postit.png usr/share/icons/hicolor/64x64/apps/
+debian/tmp/usr/share/icons/hicolor/128x128/apps/postit.png usr/share/icons/hicolor/128x128/apps/
+debian/tmp/usr/share/icons/hicolor/256x256/apps/postit.png usr/share/icons/hicolor/256x256/apps/
+debian/tmp/usr/share/icons/hicolor/scalable/apps/postit.svg usr/share/icons/hicolor/scalable/apps/
