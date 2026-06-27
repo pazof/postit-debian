@@ -1,0 +1,16 @@
+# Debian package build artifacts
+*.deb
+*.buildinfo
+*.changes
+*.debian.tar.*
+debian/files
+debian/postit/
+
+# Upstream source tree fetched by the build (in build/)
+build/
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

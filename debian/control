@@ -1,0 +1,46 @@
+Source: postit
+Section: x11
+Priority: optional
+Maintainer: Paul Schneider <paul@pschneider.fr>
+Build-Depends:
+ debhelper-compat (= 13),
+ dotnet-sdk-10.0 (>= 10.0.0) | dotnet-sdk-10.0,
+ imagemagick,
+ librsvg2-bin,
+ git,
+ ca-certificates,
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/pazof/yavsc
+
+Package: postit
+Architecture: amd64 arm64
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+ dotnet-runtime-10.0 (>= 10.0.0) | aspnetcore-runtime-10.0 (>= 10.0.0),
+ libgtk-3-0 (>= 3.24.0),
+ libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-0,
+ libfontconfig1,
+ libssl3,
+ xdg-utils,
+Recommends:
+ desktop-file-utils,
+ mime-support,
+Description: Yavsc PostIt — desktop client for the Yavsc platform
+ PostIt is the Avalonia-based desktop client for the Yavsc.Org
+ platform. It authenticates against the platform's OIDC endpoint
+ using the Authorization Code + PKCE flow over a custom URI scheme
+ (postit:// — RFC 8252 §7.1), and exposes the blog and account
+ features in a native window.
+ .
+ This package installs:
+  - the compiled PostIt.Desktop application under /usr/lib/postit/,
+  - a `postit` wrapper in /usr/bin/ that invokes dotnet on the
+    bundled assembly,
+  - an XDG .desktop entry under /usr/share/applications/, and
+  - the MIME handler registration for the postit:// scheme
+    (so xdg-open postit://... launches PostIt).
+ .
+ The package pulls its source from the pazof/yavsc git
+ repository at the tag pinned in debian/rules (POSTIT_GIT_TAG).

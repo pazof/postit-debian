@@ -1,0 +1,17 @@
+#!/bin/sh
+# postrm — run after the package is removed or purged
+#
+# Refresh the desktop-file database so the application disappears
+# from the menu. We do not unregister the postit:// MIME handler
+# at the system level (no clean API for that) — if the user wants
+# a different default they can run `xdg-mime default ...` themselves.
+
+set -e
+
+if [ -x /usr/bin/update-desktop-database ]; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+#DEBHELPER#
+
+exit 0

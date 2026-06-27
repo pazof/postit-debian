@@ -1,0 +1,31 @@
+#!/bin/sh
+# postinst — run after the package is unpacked
+#
+# Two responsibilities:
+#   1. Refresh the desktop-file database so the application appears
+#      in the menu (xdg-utils / desktop-file-utils).
+#   2. Register postit as the default handler for the postit://
+#      URI scheme via xdg-mime. This is what makes
+#      `xdg-open postit://callback?code=***` launch PostIt.
+
+set -e
+
+if [ -x /usr/bin/update-desktop-database ]; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+# xdg-mime default is per-user; the system-wide default is set
+# via a MIME-typed association in /usr/share/applications/ which
+# update-desktop-database picks up. We just need to make sure the
+# desktop file is registered for the postit:// scheme at the
+# system level.
+if [ -x /usr/bin/xdg-mime ]; then
+    # Per-user registration is not appropriate here; the system-wide
+    # registration happens via the MimeType= field in the .desktop
+    # file plus update-desktop-database above. Nothing more to do.
+    :
+fi
+
+#DEBHELPER#
+
+exit 0

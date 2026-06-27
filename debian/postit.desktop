@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=PostIt
+GenericName=Yavsc Desktop Client
+Comment=Desktop client for the Yavsc platform (OIDC + blog)
+Exec=/usr/bin/postit %u
+Icon=postit
+Terminal=false
+Categories=Network;InstantMessaging;Office;
+StartupNotify=true
+StartupWMClass=PostIt
+MimeType=x-scheme-handler/postit;
+Keywords=Yavsc;OIDC;Blog;OAuth;

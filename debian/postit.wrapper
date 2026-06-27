@@ -1,0 +1,14 @@
+#!/bin/sh
+# Wrapper installed at /usr/bin/postit.
+#
+# PostIt.Desktop publishes to a directory of managed .NET
+# assemblies (PostIt.Desktop.dll + runtimeconfig.json +
+# Avalonia*.dll + dependencies). The dotnet host resolves
+# the runtime config relative to the assembly path, so we
+# can call PostIt.Desktop.dll directly from any cwd.
+#
+# /usr/lib/postit/ is owned by the postit package (see
+# debian/postit.install) and is not user-writable, so the
+# wrapper does not need to defensively check its location.
+
+exec dotnet /usr/lib/postit/PostIt.Desktop.dll "$@"
