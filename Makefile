@@ -4,6 +4,11 @@
 #   make deb      : build a .deb in the parent directory (or
 #                   $POSTIT_OUT_DIR if set). Equivalent to
 #                   dpkg-buildpackage -us -uc -b.
+#   make test     : run the non-regression tests under tests/.
+#                   The fetch test pins the upstream Git mechanics
+#                   that previously regressed on tag-vs-branch
+#                   handling (1.0.1-rc02). Set SKIP_NETWORK_TESTS=1
+#                   to skip the GitHub-egress parts.
 #   make clean    : rm -rf build/ and the per-package staging tree
 #                   under debian/postit.
 #   make source   : fetch the upstream yavsc source tree under
@@ -21,7 +26,7 @@ POSTIT_GIT_TAG ?= 1.0.0
 POSTIT_RUNTIME ?= linux-x64
 POSTIT_OUT_DIR ?= $(CURDIR)/..
 
-.PHONY: deb clean source
+.PHONY: deb clean source test
 
 deb:
 	@echo "  POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)  POSTIT_RUNTIME=$(POSTIT_RUNTIME)  POSTIT_GIT_URL=$(POSTIT_GIT_URL)"
@@ -49,3 +54,6 @@ source:
 	mkdir -p build
 	git clone --depth=1 --branch $(POSTIT_GIT_TAG) \
 	    $(POSTIT_GIT_URL) build/yavsc-src
+
+test:
+	@bash tests/test-fetch-upstream.sh

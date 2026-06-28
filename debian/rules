@@ -55,15 +55,32 @@ override_dh_auto_build:
 	    sed 's/@VERSION@/$(POSTIT_GIT_TAG)/g' \
 	        $(CURDIR)/debian/changelog.in > $(CURDIR)/debian/changelog; \
 	fi
-	# 1. Fetch the upstream source.
+	# 1. Fetch the upstream source at POSTIT_GIT_TAG. The ref can
+	#    be either a branch name (e.g. `main`) or a tag (e.g.
+	#    `1.0.1-rc02`); `git fetch origin <ref>` handles both. The
+	#    reference MUST exist on the configured POSTIT_GIT_URL
+	#    remote (default: github.com/pazof/yavsc). If you are
+	#    building from a tag that is only on your local clone
+	#    (typical right after `git tag 1.0.1-rc02` and before
+	#    `git push origin 1.0.1-rc02`), point POSTIT_GIT_URL at
+	#    your local checkout:
+	#        make POSTIT_GIT_URL=file:///home/paul/Workspace/yavsc \
+	#             POSTIT_GIT_TAG=1.0.1-rc02
 	mkdir -p $(POSTIT_BUILD_DIR)
-	if [ -d $(POSTIT_SRC_DIR) ]; then \
-	    git -C $(POSTIT_SRC_DIR) fetch --depth=1 origin $(POSTIT_GIT_TAG); \
-	    git -C $(POSTIT_SRC_DIR) reset --hard $(POSTIT_GIT_TAG); \
-	else \
-	    git clone --depth=1 --branch $(POSTIT_GIT_TAG) \
-	        $(POSTIT_GIT_URL) $(POSTIT_SRC_DIR); \
+	if [ ! -d $(POSTIT_SRC_DIR)/.git ]; then \
+	    git init -q $(POSTIT_SRC_DIR); \
+	    git -C $(POSTIT_SRC_DIR) remote add origin $(POSTIT_GIT_URL); \
 	fi
+	if ! git -C $(POSTIT_SRC_DIR) fetch --depth=1 origin $(POSTIT_GIT_TAG); then \
+	    echo "" >&2; \
+	    echo "  ERROR: POSTIT_GIT_TAG='$(POSTIT_GIT_TAG)' is not reachable from POSTIT_GIT_URL='$(POSTIT_GIT_URL)'." >&2; \
+	    echo "  Either push the ref to the remote first (e.g. \`git push origin $(POSTIT_GIT_TAG)\`)" >&2; \
+	    echo "  or override POSTIT_GIT_URL with a local path that has the ref, e.g." >&2; \
+	    echo "      make POSTIT_GIT_URL=file:///home/paul/Workspace/yavsc POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)" >&2; \
+	    echo "" >&2; \
+	    exit 128; \
+	fi
+	git -C $(POSTIT_SRC_DIR) checkout -q FETCH_HEAD
 
 	# 2. Publish PostIt.Desktop for the host architecture.
 	#    --self-contained false : rely on the system .NET
