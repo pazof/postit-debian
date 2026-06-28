@@ -24,10 +24,23 @@ POSTIT_OUT_DIR ?= $(CURDIR)/..
 .PHONY: deb clean source
 
 deb:
+	@echo "  POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)  POSTIT_RUNTIME=$(POSTIT_RUNTIME)  POSTIT_GIT_URL=$(POSTIT_GIT_URL)"
+	# Render debian/changelog from debian/changelog.in so the package
+	# version follows the upstream tag, not the version pinned in the
+	# repo. dpkg-buildpackage reads debian/changelog before any rule
+	# runs (in dpkg-source --before-build), so the template must be
+	# expanded in the Makefile, not in debian/rules. Without this
+	# step the .deb always comes out as the version hardcoded in
+	# debian/changelog.in, regardless of POSTIT_GIT_TAG.
+	sed 's/@VERSION@/$(POSTIT_GIT_TAG)/g' debian/changelog.in > debian/changelog
 	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) \
 	    dpkg-buildpackage -us -uc -b
-	mv ../postit_*$(POSTIT_GIT_TAG)*.deb $(POSTIT_OUT_DIR)/ 2>/dev/null || \
+	# Move the produced .deb(s) into $POSTIT_OUT_DIR. The version
+	# segment we match against is the rendered changelog version
+	# (e.g. 1.0.1-rc01-1), not the bare tag.
+	mv ../postit_*$(POSTIT_GIT_TAG)-1*.deb $(POSTIT_OUT_DIR)/ 2>/dev/null || \
 	    mv ../postit_*.deb $(POSTIT_OUT_DIR)/ || true
+	@echo "  ✓ artifacts moved to $(POSTIT_OUT_DIR)"
 
 clean:
 	rm -rf build debian/postit

@@ -1,0 +1,13 @@
+postit (@VERSION@-1) trixie; urgency=medium
+
+  * Built from pazof/yavsc at tag @VERSION@.
+  * Packaged as a Debian binary package named `postit`, exposing the
+    `postit` command on PATH. Registers the postit:// URI scheme as
+    an XDG MIME handler so xdg-open postit://... launches the freshly
+    installed client.
+  * The Debian revision (`-1`) is fixed: postit-debian tracks the
+    packaging itself, the upstream semantic version is whatever tag
+    we point POSTIT_GIT_TAG at. Bump the template (or its rendered
+    form) only when the packaging actually changes.
+
+ -- Paul Schneider <paul@pschneider.fr>  Sat, 28 Jun 2026 00:01:00 +0100

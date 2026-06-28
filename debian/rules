@@ -39,9 +39,22 @@ ICON_SIZES := 16 32 48 64 128 256
 	dh $@
 
 override_dh_auto_clean:
-	rm -rf $(POSTIT_BUILD_DIR) $(POSTIT_TMP)
+	rm -rf $(POSTIT_BUILD_DIR) $(POSTIT_TMP) $(CURDIR)/debian/changelog
 
 override_dh_auto_build:
+	# The rendered changelog (debian/changelog) is generated from
+	# debian/changelog.in by the Makefile *before* dpkg-buildpackage
+	# runs, because dpkg-buildpackage reads debian/changelog before
+	# any rule (in dpkg-source --before-build) and would fail with
+	# "changelog missing" if it were not present. If somebody invokes
+	# dpkg-buildpackage directly without going through the Makefile
+	# (rare, but cheap to guard against), render the changelog on
+	# the fly from the current POSTIT_GIT_TAG so the package still
+	# builds and ships the right version.
+	if [ ! -f $(CURDIR)/debian/changelog ] && [ -f $(CURDIR)/debian/changelog.in ]; then \
+	    sed 's/@VERSION@/$(POSTIT_GIT_TAG)/g' \
+	        $(CURDIR)/debian/changelog.in > $(CURDIR)/debian/changelog; \
+	fi
 	# 1. Fetch the upstream source.
 	mkdir -p $(POSTIT_BUILD_DIR)
 	if [ -d $(POSTIT_SRC_DIR) ]; then \

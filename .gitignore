@@ -20,6 +20,12 @@ debian/debhelper-build-stamp
 debian/postit.debhelper.log
 debian/postit.substvars
 
+# Generated from debian/changelog.in at the start of every build
+# (see debian/rules and the Makefile). Versioned template is
+# changelog.in; the rendered file is not tracked because it changes
+# with POSTIT_GIT_TAG on every build.
+debian/changelog
+
 # Staging tree for dh_install
 debian/tmp/
 
