@@ -84,14 +84,39 @@ override_dh_auto_build:
 
 	# 2. Publish PostIt.Desktop for the host architecture.
 	#    --self-contained false : rely on the system .NET
-	#    runtime (declared in Depends: in debian/control).
+	#    runtime (declared in debian/control Depends:).
 	#    -p:PublishReadyToRun=false : avoid R2R which inflates
 	#    the binary for marginal startup gain on a desktop GUI.
+	#    -p:DisableGitVersionTask=true : GitVersion.MsBuild cannot
+	#    resolve the repo when we check out FETCH_HEAD (the working
+	#    tree is in detached-HEAD state, which trips GitVersion's
+	#    FindGitDir path detection). We instead stamp the assembly
+	#    metadata manually from POSTIT_GIT_TAG below.
+	#    -p:Version / -p:AssemblyVersion / -p:FileVersion / -p:InformationalVersion :
+	#    substitute GitVersion's resolved values with values
+	#    derived from the tag we are packaging. The consumer of
+	#    the .deb can still query `dpkg-deb -f postit_*.deb Version`
+	#    for the Debian package version; these MSBuild properties
+	#    only show up in the managed assembly metadata (visible
+	#    via `postit --version` once the WinExe embeds it).
+	#
+	#    Strip the pre-release suffix (e.g. -rc03) from
+	#    POSTIT_GIT_TAG for AssemblyVersion/FileVersion, since
+	#    those require strict major.minor.build.revision numerics.
+	#    Version / InformationalVersion keep the full string with
+	#    the suffix, which is what SemanticVersion consumers
+	#    expect.
+	$(eval POSTIT_ASSEMBLY_VERSION := $(shell echo $(POSTIT_GIT_TAG) | sed 's/-.*//'))
 	dotnet publish $(POSTIT_SRC_DIR)/$(POSTIT_DESKTOP_PROJECT) \
 	    -c Release \
 	    --self-contained false \
 	    --runtime $(POSTIT_RUNTIME) \
 	    -p:PublishReadyToRun=false \
+	    -p:DisableGitVersionTask=true \
+	    -p:Version=$(POSTIT_GIT_TAG) \
+	    -p:AssemblyVersion=$(POSTIT_ASSEMBLY_VERSION).0 \
+	    -p:FileVersion=$(POSTIT_ASSEMBLY_VERSION).0 \
+	    -p:InformationalVersion=$(POSTIT_GIT_TAG) \
 	    -o $(POSTIT_BUILD_DIR)/postit-app
 
 
