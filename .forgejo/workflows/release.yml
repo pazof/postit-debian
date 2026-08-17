@@ -222,45 +222,42 @@ jobs:
         env:
           POSTIT_RUNTIME: linux-x64
         run: |
-          set -e -x
+          set -e
           TAG=$(jq -r '.tag' "$STATE_FILE")
           cd /src/_src
           echo "→ Building amd64 for POSTIT_GIT_TAG=$TAG"
           make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-x64
-          DEB_AMD64=$(ls postit_*${TAG}-1_amd64.deb 2>/dev/null || true)
+          # make deb mv's the produced .deb(s) into /src/ (the
+          # parent of /src/_src/, $POSTIT_OUT_DIR default).
+          # Check there, not in the build dir.
+          DEB_AMD64=$(ls /src/postit_*${TAG}-1_amd64.deb 2>/dev/null || true)
           if [[ -z "$DEB_AMD64" ]]; then
-            echo "::error::Build .deb amd64 did not produce postit_*${TAG}-1_amd64.deb"
-            ls -la
+            echo "::error::Build .deb amd64 did not produce /src/postit_*${TAG}-1_amd64.deb"
+            ls -la /src/ /src/_src/ 2>/dev/null
             exit 1
           fi
           echo "✓ Built $DEB_AMD64"
-          set +x
 
       - name: Build .deb arm64
         env:
           POSTIT_RUNTIME: linux-arm64
         run: |
-          set -e -x
+          set -e
           TAG=$(jq -r '.tag' "$STATE_FILE")
           cd /src/_src
           echo "→ Building arm64 for POSTIT_GIT_TAG=$TAG"
           # Cross-RID .NET depuis un hôte amd64 : standard, pas
           # besoin de runner arm64 natif.
           make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64
-          # Verify the arm64 .deb was actually produced. Without
-          # this check, a silent dpkg-buildpackage failure would
-          # let the step exit 0 (the Makefile's mv || true matches
-          # any leftover amd64 .deb and exits successfully), and
-          # the failure would only surface in the next step.
-          DEB_ARM64=$(ls postit_*${TAG}-1_arm64.deb 2>/dev/null || true)
+          # Same check as amd64: verify the .deb landed in /src/.
+          DEB_ARM64=$(ls /src/postit_*${TAG}-1_arm64.deb 2>/dev/null || true)
           if [[ -z "$DEB_ARM64" ]]; then
-            echo "::error::Build .deb arm64 did not produce postit_*${TAG}-1_arm64.deb"
+            echo "::error::Build .deb arm64 did not produce /src/postit_*${TAG}-1_arm64.deb"
             echo "Inspect the dpkg-buildpackage output above for the root cause."
-            ls -la
+            ls -la /src/ /src/_src/ 2>/dev/null
             exit 1
           fi
           echo "✓ Built $DEB_ARM64"
-          set +x
 
       - name: Localiser les .deb produits
         run: |
