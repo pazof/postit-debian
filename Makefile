@@ -60,12 +60,7 @@ deb:
 	# NOT used because it refuses to set up the env when the CC
 	# system type doesn't match (we don't have an arm64 C
 	# compiler — we cross-publish .NET binaries only).
-	case "$(POSTIT_RUNTIME)" in
-	    linux-arm64) DPKG_HOST=arm64 ;;
-	    linux-x64)   DPKG_HOST=amd64 ;;
-	    *) echo "  ERROR: unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;;
-	esac
-	DEB_HOST_ARCH=$$DPKG_HOST DEB_BUILD_ARCH=amd64 DEB_HOST_GNU_TYPE=aarch64-linux-gnu DEB_BUILD_GNU_TYPE=x86_64-linux-gnu POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b -a$$DPKG_HOST
+	DPKG_HOST=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo arm64 ;; linux-x64) echo amd64 ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac) && DEB_HOST_ARCH=$$DPKG_HOST DEB_BUILD_ARCH=amd64 DEB_HOST_GNU_TYPE=aarch64-linux-gnu DEB_BUILD_GNU_TYPE=x86_64-linux-gnu POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b -a$$DPKG_HOST
 	# dpkg-buildpackage already writes the produced .deb to
 	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
 	# flag to change it). So no 'mv' is needed. The old 'mv'
