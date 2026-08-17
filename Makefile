@@ -38,10 +38,13 @@ deb:
 	# step the .deb always comes out as the version hardcoded in
 	# debian/changelog.in, regardless of POSTIT_GIT_TAG.
 	sed 's/@VERSION@/$(POSTIT_GIT_TAG)/g' debian/changelog.in > debian/changelog
-	# Remove any residual .deb from previous runs (same name
-	# pattern would otherwise be re-used by dpkg-deb if the
-	# previous run left it lying around).
-	rm -f ../postit_*$(POSTIT_GIT_TAG)-1*.deb ../postit_*.buildinfo ../postit_*.changes
+	# Remove only this build's residual .deb (avoid glob-matching
+	# .debs from sibling builds — the workflow invokes us once per
+	# architecture, and a wide glob would erase the .deb the
+	# previous build just produced). The pattern is the same one
+	# dpkg-deb will reuse if we don't clean up first: postit_<ver>-
+	# 1_<host_arch>.deb.
+	rm -f ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.deb ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.buildinfo ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.changes
 	# Use dpkg-architecture to set the target arch correctly for
 	# cross-builds. For POSTIT_RUNTIME=linux-arm64, this exports
 	# DEB_HOST_ARCH=arm64 (and friends) so dpkg-buildpackage names
