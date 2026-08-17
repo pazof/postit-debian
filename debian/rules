@@ -126,10 +126,34 @@ override_dh_auto_test:
 	# client). Build smoke is sufficient for the package.
 
 override_dh_shlibdeps:
-	dh_shlibdeps
+	# In a cross-build (DEB_HOST_ARCH != DEB_BUILD_ARCH), the
+	# system's arch-specific lib dir is at
+	# /usr/lib/<DEB_HOST_MULTIARCH>/. crossbuild-essential-arm64
+	# has transitively installed libc6:arm64 et al. there (it's
+	# a Depends chain: crossbuild-essential-arm64 → gcc-aarch64-
+	# linux-gnu → libc6-dev:arm64 → libc6:arm64). Pass that
+	# path via -l so dpkg-shlibdeps can resolve the arm64
+	# binaries' NEEDED entries (libc.so.6, libstdc++.so.6,
+	# libfontconfig, etc.) against the on-host shlibs cache.
+	if [ -n "$(DEB_HOST_ARCH)" ] && [ "$(DEB_HOST_ARCH)" != "$(DEB_BUILD_ARCH)" ]; then \
+	    HOST_MULTIARCH=$$(dpkg-architecture -a$(DEB_HOST_ARCH) -q DEB_HOST_MULTIARCH 2>/dev/null) || \
+	        HOST_MULTIARCH=aarch64-linux-gnu; \
+	    HOST_LIB_DIR=/usr/lib/$${HOST_MULTIARCH}; \
+	    if [ -d "$$HOST_LIB_DIR" ]; then \
+	        echo "  --> dh_shlibdeps: cross-arch $$HOST_LIB_DIR (DEB_HOST_ARCH=$(DEB_HOST_ARCH))"; \
+	        dh_shlibdeps -- -l"$$HOST_LIB_DIR"; \
+	    else \
+	        echo "  --> dh_shlibdeps: WARN cross-arch dir $$HOST_LIB_DIR missing"; \
+	        dh_shlibdeps; \
+	    fi \
+	else \
+	    dh_shlibdeps; \
+	fi
 
 override_dh_strip:
-	dh_strip --exclude=.pdb
+	# dh_strip disabled entirely. See MEMORY.md / AGENTS.md for the
+	# rationale (cross-compiled native .so via NuGet from Avalonia
+	# deps cannot be parsed by amd64 objcopy/strip).
 
 
 define stage_postit

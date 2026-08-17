@@ -29,10 +29,12 @@
 # on met à jour la release existante plutôt que d'en multiplier
 # pour un même tag. Le permalien /releases/tag/<tag> reste stable.
 #
-# Inter-step state: we persist values between steps via a plain
-# env file under /tmp, sourced at the top of each step that needs
-# it. This keeps the workflow self-contained and avoids any
-# runtime variable names we did not choose.
+# Inter-step state: persisted as JSON in /tmp/release-state.json,
+# read at the top of each step with `jq -r .<field>`. Using JSON
+# sidesteps shell parsing issues that come with sourcing a file
+# that contains heredocs / markdown / colons / etc. — RELEASE_BODY
+# in particular is markdown content straight from CHANGELOG.md and
+# cannot be safely `source`d.
 name: Forgejo Release postit-deb
 
 on:
@@ -63,7 +65,7 @@ jobs:
     container:
       image: docker.io/pazof/yavsc-build-env:debian12-dotnet10-android36-v2
     env:
-      STATE_FILE: /tmp/release-state.env
+      STATE_FILE: /tmp/release-state.json
     steps:
       - name: Installer les pré-requis de build (debhelper + icônes)
         # L'image runner fournit déjà dotnet-sdk-10.0, git, jq,
@@ -72,9 +74,26 @@ jobs:
         # via `convert`, librsvg2-bin pour le SVG).
         run: |
           apt-get update
+          # Cross-build deps for arm64:
+          # 1. dpkg --add-architecture arm64 + apt-get update — make
+          #    apt aware of arm64 packages.
+          # 2. Install the arm64 RUNTIME libs (libc6:arm64, etc.)
+          #    so dpkg-shlibdeps can resolve the .so dependencies
+          #    of the arm64 binaries via the on-host shlibs cache.
+          #    The runtime libs (not -dev:arm64) is what carries
+          #    the SONAME metadata that dpkg-shlibdeps matches.
+          # 3. crossbuild-essential-arm64 pulls gcc/binutils for
+          #    arm64, plus dpkg-cross CONFIG_SITE files under
+          #    /etc/dpkg-cross/. The cross-gcc is unused for our
+          #    dotnet-only build but harmless.
+          dpkg --add-architecture arm64
+          apt-get update
           apt-get install -y --no-install-recommends \
               build-essential debhelper imagemagick librsvg2-bin \
-              ca-certificates
+              ca-certificates crossbuild-essential-arm64 \
+              libc6:arm64 libstdc++6:arm64 \
+              libfontconfig1:arm64 libfreetype6:arm64 \
+              libgtk-3-0:arm64
           rm -rf /var/lib/apt/lists/*
           : > "$STATE_FILE"
 
@@ -100,11 +119,14 @@ jobs:
           git checkout "$TAG"
 
           echo "Checked out at $(git rev-parse HEAD) on tag $TAG"
-          echo "TAG=$TAG" >> "$STATE_FILE"
+
+          # Persist TAG in the state file. --arg ensures proper
+          # JSON escaping of any special chars.
+          jq -n --arg tag "$TAG" '{tag: $tag}' > "$STATE_FILE"
 
       - name: Valider le tag et la section CHANGELOG
         run: |
-          source "$STATE_FILE"
+          TAG=$(jq -r '.tag' "$STATE_FILE")
           cd /src/_src
           echo "Validating tag $TAG"
 
@@ -176,37 +198,76 @@ jobs:
 
           echo "Section CHANGELOG validée pour [$TAG] - $CHANNEL"
 
-          # Persist values for the next steps via our local state file.
-          {
-            echo "RELEASE_BODY<<EOF"
-            echo "$RELEASE_BODY"
-            echo "EOF"
-            echo "IS_PRERELEASE=$IS_PRERELEASE"
-          } >> "$STATE_FILE"
+          # Persist validation results. Use --arg for strings (so
+          # jq handles escaping of backticks, asterisks, colons,
+          # etc.) and --argjson for booleans.
+          jq -n \
+            --arg tag "$TAG" \
+            --arg body "$RELEASE_BODY" \
+            --argjson is_prerelease "$IS_PRERELEASE" \
+            '{tag: $tag, body: $body, is_prerelease: $is_prerelease}' \
+            > "$STATE_FILE"
 
       - name: Build .deb amd64
         env:
           POSTIT_RUNTIME: linux-x64
         run: |
-          source "$STATE_FILE"
+          set -e
+          TAG=$(jq -r '.tag' "$STATE_FILE")
           cd /src/_src
           echo "→ Building amd64 for POSTIT_GIT_TAG=$TAG"
           make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-x64
+          # make deb mv's the produced .deb(s) into /src/ (the
+          # parent of /src/_src/, $POSTIT_OUT_DIR default).
+          # Check there, not in the build dir.
+          DEB_AMD64=$(ls /src/postit_*${TAG}-1_amd64.deb 2>/dev/null || true)
+          if [[ -z "$DEB_AMD64" ]]; then
+            echo "::error::Build .deb amd64 did not produce /src/postit_*${TAG}-1_amd64.deb"
+            ls -la /src/ /src/_src/ 2>/dev/null
+            exit 1
+          fi
+          echo "✓ Built $DEB_AMD64"
 
       - name: Build .deb arm64
         env:
           POSTIT_RUNTIME: linux-arm64
         run: |
-          source "$STATE_FILE"
+          set -e -x
+          TAG=$(jq -r '.tag' "$STATE_FILE")
           cd /src/_src
           echo "→ Building arm64 for POSTIT_GIT_TAG=$TAG"
           # Cross-RID .NET depuis un hôte amd64 : standard, pas
           # besoin de runner arm64 natif.
-          make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64
+          # set -x traces every command so a silent failure inside
+          # 'make deb' (e.g. dpkg-buildpackage aborting after the
+          # 'mv ... || true' swallows the error) is visible.
+          # Debian-recommended cross-build environment for dpkg-buildpackage:
+          #   - CONFIG_SITE points autoconf at the cross-config for arm64
+          #     (set up by crossbuild-essential-arm64)
+          #   - DEB_HOST_ARCH=arm64 is the target architecture
+          #   - DEB_BUILD_ARCH=amd64 stays the build host
+          #   - DEB_BUILD_OPTIONS=nocheck skips tests in the cross context
+          CONFIG_SITE=/etc/dpkg-cross/cross-config.arm64 \
+            DEB_HOST_ARCH=arm64 DEB_BUILD_ARCH=amd64 \
+            DEB_BUILD_OPTIONS=nocheck \
+            make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64 || {
+            echo "::error::make deb for arm64 exited non-zero — see output above"
+            exit 1
+          }
+          # Same check as amd64: verify the .deb landed in /src/.
+          DEB_ARM64=$(ls /src/postit_*${TAG}-1_arm64.deb 2>/dev/null || true)
+          if [[ -z "$DEB_ARM64" ]]; then
+            echo "::error::Build .deb arm64 did not produce /src/postit_*${TAG}-1_arm64.deb"
+            echo "Inspect the dpkg-buildpackage output above for the root cause."
+            ls -la /src/ /src/_src/ 2>/dev/null
+            exit 1
+          fi
+          echo "✓ Built $DEB_ARM64"
+          set +x
 
       - name: Localiser les .deb produits
         run: |
-          source "$STATE_FILE"
+          TAG=$(jq -r '.tag' "$STATE_FILE")
           cd /src
           DEB_AMD64=$(find . -maxdepth 3 -name "postit_*${TAG}-1_amd64.deb" \
                       -not -path "./_src/debian/*" -printf '%p\n' | head -1)
@@ -217,8 +278,10 @@ jobs:
             ls -la /src/ 2>/dev/null || true
             exit 1
           fi
-          echo "DEB_AMD64=/src/$DEB_AMD64" >> "$STATE_FILE"
-          echo "DEB_ARM64=/src/$DEB_ARM64" >> "$STATE_FILE"
+          # Merge .deb paths into state file.
+          jq --arg amd64 "/src/$DEB_AMD64" --arg arm64 "/src/$DEB_ARM64" \
+            '. + {deb_amd64: $amd64, deb_arm64: $arm64}' \
+            "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
           echo "✓ Found both .deb files"
 
       - name: Publier la release Forgejo via l'API REST
@@ -227,7 +290,11 @@ jobs:
           FORGEJO_API_URL: ${{ forgejo.api_url }}
           FORGEJO_REPOSITORY: ${{ forgejo.repository }}
         run: |
-          source "$STATE_FILE"
+          TAG=$(jq -r '.tag' "$STATE_FILE")
+          RELEASE_BODY=$(jq -r '.body' "$STATE_FILE")
+          IS_PRERELEASE=$(jq -r '.is_prerelease' "$STATE_FILE")
+          DEB_AMD64=$(jq -r '.deb_amd64' "$STATE_FILE")
+          DEB_ARM64=$(jq -r '.deb_arm64' "$STATE_FILE")
           if [[ -z "$TAG" ]]; then
             echo "::error::No tag resolved for the API call."
             exit 1

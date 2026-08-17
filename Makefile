@@ -38,14 +38,57 @@ deb:
 	# step the .deb always comes out as the version hardcoded in
 	# debian/changelog.in, regardless of POSTIT_GIT_TAG.
 	sed 's/@VERSION@/$(POSTIT_GIT_TAG)/g' debian/changelog.in > debian/changelog
-	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) \
-	    dpkg-buildpackage -us -uc -b
-	# Move the produced .deb(s) into $POSTIT_OUT_DIR. The version
-	# segment we match against is the rendered changelog version
-	# (e.g. 1.0.1-rc01-1), not the bare tag.
-	mv ../postit_*$(POSTIT_GIT_TAG)-1*.deb $(POSTIT_OUT_DIR)/ 2>/dev/null || \
-	    mv ../postit_*.deb $(POSTIT_OUT_DIR)/ || true
-	@echo "  ✓ artifacts moved to $(POSTIT_OUT_DIR)"
+	# Remove only this build's residual .deb (avoid glob-matching
+	# .debs from sibling builds — the workflow invokes us once per
+	# architecture, and a wide glob would erase the .deb the
+	# previous build just produced). The pattern is the same one
+	# dpkg-deb will reuse if we don't clean up first: postit_<ver>-
+	# 1_<host_arch>.deb.
+	rm -f ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.deb ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.buildinfo ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.changes
+	# Use dpkg-architecture to set the target arch correctly for
+	# cross-builds. For POSTIT_RUNTIME=linux-arm64, this exports
+	# DEB_HOST_ARCH=arm64 (and friends) so dpkg-buildpackage names
+	# the .deb postit_*_arm64.deb instead of postit_*_amd64.deb.
+	# For linux-x64, it sets the host arch to amd64 explicitly
+	# (which matches the runner — no-op, but keeps the call site
+	# uniform). Other RIDs are rejected.
+	# Compute DPKG_ARCH_ARGS, eval dpkg-architecture, then call
+	# dpkg-buildpackage — all in ONE shell invocation so the
+	# vars set by dpkg-architecture are visible to dpkg-buildpackage.
+	# make runs each recipe line in its own shell, so we use
+	# backslash continuation to glue everything together.
+	# Cross-build configuration for dpkg-buildpackage.
+	#
+	# We set DEB_HOST_ARCH=arm64 and pass -aarm64 directly to
+	# dpkg-buildpackage, bypassing dpkg-architecture.
+	#
+	# Why bypass dpkg-architecture? It's deliberately conservative:
+	# it refuses to set up the cross-build env when the C compiler
+	# (CC) doesn't match the target arch. Our package has no C
+	# code — dh_auto_build only runs \`dotnet publish --runtime
+	# linux-arm64\` (a managed-only cross-publish), and we
+	# disable dh_strip (the only rule that needed an arch-specific
+	# objcopy). dh_shlibdeps uses the multi-arch arm64 libs we
+	# apt-get install in the runner. So no arm64 toolchain is
+	# actually needed; the dpkg-architecture CC check would
+	# unnecessarily block us.
+	#
+	# We do explicitly set the four DEB_* vars dpkg-architecture
+	# would normally export (host arch, build arch, host GNU
+	# type, build GNU type) so debhelper rules see a consistent
+	# cross-build environment.
+	DPKG_HOST=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo arm64 ;; linux-x64) echo amd64 ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac) && DEB_HOST_ARCH=$$DPKG_HOST DEB_BUILD_ARCH=amd64 DEB_HOST_GNU_TYPE=aarch64-linux-gnu DEB_BUILD_GNU_TYPE=x86_64-linux-gnu POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b -d -Pcross -a$$DPKG_HOST
+	# dpkg-buildpackage already writes the produced .deb to
+	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
+	# flag to change it). So no 'mv' is needed. The old 'mv'
+	# caused a 'same file' error when the destination was the
+	# same as the source (which it always is). Just verify the
+	# .deb was actually produced.
+	if ! ls ../postit_*$(POSTIT_GIT_TAG)-1*.deb >/dev/null 2>&1; then \
+	    echo "  ERROR: dpkg-buildpackage produced no .deb for POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)" >&2; \
+	    exit 1; \
+	fi
+	@echo "  ✓ artifacts in $(POSTIT_OUT_DIR)"
 
 clean:
 	rm -rf build debian/postit
