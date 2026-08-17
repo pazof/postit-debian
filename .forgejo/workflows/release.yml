@@ -242,13 +242,19 @@ jobs:
         env:
           POSTIT_RUNTIME: linux-arm64
         run: |
-          set -e
+          set -e -x
           TAG=$(jq -r '.tag' "$STATE_FILE")
           cd /src/_src
           echo "→ Building arm64 for POSTIT_GIT_TAG=$TAG"
           # Cross-RID .NET depuis un hôte amd64 : standard, pas
           # besoin de runner arm64 natif.
-          make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64
+          # set -x traces every command so a silent failure inside
+          # 'make deb' (e.g. dpkg-buildpackage aborting after the
+          # 'mv ... || true' swallows the error) is visible.
+          make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64 || {
+            echo "::error::make deb for arm64 exited non-zero — see output above"
+            exit 1
+          }
           # Same check as amd64: verify the .deb landed in /src/.
           DEB_ARM64=$(ls /src/postit_*${TAG}-1_arm64.deb 2>/dev/null || true)
           if [[ -z "$DEB_ARM64" ]]; then
@@ -258,6 +264,7 @@ jobs:
             exit 1
           fi
           echo "✓ Built $DEB_ARM64"
+          set +x
 
       - name: Localiser les .deb produits
         run: |
