@@ -11,8 +11,8 @@
 # .deb files as assets.
 #
 # Authentication: the runner auto-provides a token scoped to the
-# repository. We read it via ${{ forgejo.token }} and store it in
-# the local env var FORGEJO_TOKEN for the rest of the script.
+# repository. We read it once into the local env var FORGEJO_TOKEN
+# and never reference the runtime-level name again.
 #
 # Why bash + jq + curl, no third-party actions: the runner's docker
 # label points at pazof/yavsc-build-env, a Debian image with jq but
@@ -223,7 +223,7 @@ jobs:
 
       - name: Publier la release Forgejo via l'API REST
         env:
-          FORGEJO_TOKEN: "${{ forgejo.token }}"
+          FORGEJO_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           FORGEJO_API_URL: ${{ forgejo.api_url }}
           FORGEJO_REPOSITORY: ${{ forgejo.repository }}
         run: |
