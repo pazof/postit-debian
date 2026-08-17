@@ -1,4 +1,4 @@
-# postit-debian
+# [ARCHIVED](https://forgejo.pschneider.fr/notazof/postit-debian) postit-debian
 
 Paquet Debian pour [PostIt.Desktop](../yavsc), le client desktop
 Avalonia de la plateforme Yavsc.Org.
