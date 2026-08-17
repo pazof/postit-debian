@@ -1,0 +1,289 @@
+name: Build and Release postit-deb
+
+# Ce workflow est destiné à **GitHub Actions uniquement** (paths
+# /home/runner/..., ubuntu-latest, softprops/action-gh-release@v2).
+# Pour Forgejo Actions (pazof/yavsc-build-env, paths différents,
+# pas de Node), il faudrait un pendant dans .forgejo/workflows/ —
+# non écrit à ce jour.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag de pazof/yavsc à packager (ex. 1.0.6, 1.0.7-rc1). Requis pour un build ad-hoc.'
+        required: true
+        type: string
+      force_unstable:
+        description: 'Publier une release avec suffixe (ex. 1.0.0-rc1) malgré le fail-fast par défaut.'
+        required: false
+        type: boolean
+        default: false
+      force_republish:
+        description: 'Re-publier une release dont le tag existe déjà. Par défaut refusé (re-tag = le mal).'
+        required: false
+        type: boolean
+        default: false
+
+# softprops/action-gh-release a besoin de contents: write
+# pour publier une release + uploader un asset.
+permissions:
+  contents: write
+
+jobs:
+  # Build matrix : un .deb par architecture. Le tag Git poussé sur
+  # ce dépôt devient POSTIT_GIT_TAG pour `make deb`, qui clone
+  # l'amont pazof/yavsc à ce tag et produit le .deb correspondant.
+  # Sur amd64, la cross-compilation linux-arm64 marche nativement
+  # (dotnet publish --runtime linux-arm64 depuis un hôte amd64).
+  # On évite donc les runners arm64 natifs (qui existent mais sont
+  # récents et plus chers en minutes).
+  deb-build:
+    name: Build .deb (${{ matrix.runtime }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: linux-x64
+            arch: amd64
+            artifact_name: postit-amd64
+          - runtime: linux-arm64
+            arch: arm64
+            artifact_name: postit-arm64
+    steps:
+      - name: Checkout postit-debian
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Installer les pré-requis de build (debhelper + icônes)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+              build-essential debhelper imagemagick librsvg2-bin \
+              git ca-certificates
+
+      - name: Installer .NET SDK 10
+        uses: microsoft/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Déterminer POSTIT_GIT_TAG
+        id: tag
+        run: |
+          # Sur un push de branche (pas un tag), github.ref_name est
+          # 'main' — `make deb POSTIT_GIT_TAG=main` clone pazof/yavsc
+          # sur la branche main et produit un .deb à jour. Sur un push
+          # de tag, c'est le numéro de tag (ex. '1.0.6'). Sur
+          # workflow_dispatch, on lit l'input `tag`.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          if [[ -z "$TAG" ]]; then
+            echo "::error::POSTIT_GIT_TAG is empty. Pour workflow_dispatch, l'input 'tag' est obligatoire."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "→ POSTIT_GIT_TAG=$TAG"
+
+      - name: Build du .deb via make deb
+        env:
+          POSTIT_GIT_TAG: ${{ steps.tag.outputs.tag }}
+          POSTIT_RUNTIME: ${{ matrix.runtime }}
+        run: |
+          echo "→ Building for POSTIT_GIT_TAG=$POSTIT_GIT_TAG POSTIT_RUNTIME=$POSTIT_RUNTIME"
+          make deb POSTIT_GIT_TAG="$POSTIT_GIT_TAG" POSTIT_RUNTIME="$POSTIT_RUNTIME"
+
+      - name: Localiser le .deb produit
+        id: locate
+        run: |
+          # Le Makefile mv les .deb vers $POSTIT_OUT_DIR (par défaut
+          # le répertoire parent du repo). Sur GitHub Actions, c'est
+          # le workspace parent : /home/runner/work/.. Le .deb est
+          # nommé d'après le tag brut (avec ou sans 'v', tel quel
+          # poussé sur le remote), on cherche donc avec ref_name.
+          DEB=$(find /home/runner -maxdepth 4 -name "postit_*${{ github.ref_name }}-1_${{ matrix.arch }}.deb" \
+                -not -path "*/debian/*" \
+                -printf '%p\n' | head -1)
+          if [[ -z "$DEB" ]]; then
+            echo "::error::No .deb matching postit_*${{ github.ref_name }}-1_${{ matrix.arch }}.deb found."
+            echo "Files in parent dir:"
+            ls -la /home/runner/work/ 2>/dev/null || true
+            exit 1
+          fi
+          echo "deb_path=$DEB" >> "$GITHUB_OUTPUT"
+          echo "✓ Found $DEB"
+
+      - name: Téléverser le .deb en tant qu'Artéfact GitHub
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ steps.locate.outputs.deb_path }}
+          retention-days: 7
+
+  # Validation : parse le tag, applique la parité patch (pair=stable /
+  # impair=preview / suffixe=instable), vérifie que CHANGELOG.md
+  # contient une section cohérente, et — point non négociable —
+  # refuse de re-publier un tag qui existe déjà (re-tag = le mal).
+  validate-release:
+    # Tourne sur push de tag (release officielle) ou sur workflow_dispatch
+    # avec un tag explicite (release ad-hoc). Sur push de branche, on
+    # ne publie pas — les jobs de build suffisent (artefacts seulement).
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout postit-debian
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Déterminer le tag à publier
+        id: pick_tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          if [[ -z "$TAG" ]]; then
+            echo "::error::Tag is empty. Sur workflow_dispatch, l'input 'tag' est obligatoire."
+            exit 1
+          fi
+          # Strip leading 'v' (git tag convention).
+          if [[ "$TAG" =~ ^v(.*)$ ]]; then
+            TAG="${BASH_REMATCH[1]}"
+            echo "Stripped leading 'v' — using TAG=$TAG for validation."
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Valider le tag, le CHANGELOG et l'unicité du tag
+        env:
+          FORCE_UNSTABLE: ${{ inputs.force_unstable || github.event.inputs.force_unstable || 'false' }}
+          FORCE_REPUBLISH: ${{ inputs.force_republish || github.event.inputs.force_republish || 'false' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.pick_tag.outputs.tag }}"
+
+          # Parse semver : MAJOR.MINOR.PATCH[-SUFFIX]
+          if [[ ! "$TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]]; then
+            echo "::error::Tag '$TAG' does not match MAJOR.MINOR.PATCH[-SUFFIX] format."
+            exit 1
+          fi
+
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          SUFFIX="${BASH_REMATCH[4]}"
+
+          # Classification du canal par parité du patch.
+          if [[ -n "$SUFFIX" ]]; then
+            CHANNEL="unstable"
+          elif (( PATCH % 2 == 0 )); then
+            CHANNEL="stable"
+          else
+            CHANNEL="preview"
+          fi
+
+          echo "Tag $TAG classifié comme channel=$CHANNEL"
+
+          # Fail-fast sur instable sauf opt-in explicite.
+          if [[ "$CHANNEL" == "unstable" && "$FORCE_UNSTABLE" != "true" ]]; then
+            echo "::error::Tag '$TAG' is unstable (suffix '$SUFFIX'). Refusing to publish."
+            echo "Set force_unstable=true via workflow_dispatch to override."
+            exit 1
+          fi
+
+          # Lecture du CHANGELOG.md (doit exister à la racine du repo).
+          if [[ ! -f CHANGELOG.md ]]; then
+            echo "::error::CHANGELOG.md not found at repo root."
+            exit 1
+          fi
+
+          # Extraction de la section [TAG]. awk en mode paragraphe.
+          BODY=$(awk -v tag="[$TAG]" '
+            /^## \[/ {
+              if (in_section) exit
+              if (index($0, tag) > 0) in_section=1
+              next
+            }
+            in_section { print }
+          ' CHANGELOG.md)
+
+          if [[ -z "$BODY" ]]; then
+            echo "::error::No section matching '## [$TAG]' found in CHANGELOG.md."
+            echo "Add a '## [$TAG] - $CHANNEL' section before tagging."
+            exit 1
+          fi
+
+          # Vérification cohérence du canal déclaré.
+          HEADER=$(grep -m1 "^## \[$TAG\]" CHANGELOG.md)
+          if [[ "$HEADER" != *" - $CHANNEL"* ]]; then
+            echo "::error::Section '## [$TAG]' must declare suffix '- $CHANNEL' to match tag parity."
+            echo "Current section header: $HEADER"
+            exit 1
+          fi
+
+          echo "Section CHANGELOG validée pour [$TAG] - $CHANNEL"
+
+          # Anti-re-tag : refuse de publier si une release existe déjà
+          # pour ce tag. softprops/action-gh-release créerait sinon une
+          # nouvelle release par-dessus (re-tag = le mal). Opt-in via
+          # workflow_dispatch + force_republish=true uniquement.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if [[ "$FORCE_REPUBLISH" != "true" ]]; then
+              echo "::error::Release for tag '$TAG' already exists. Refusing to re-tag."
+              echo "Set force_republish=true via workflow_dispatch to override."
+              exit 1
+            else
+              echo "::warning::Release '$TAG' already exists — force_republish=true, proceeding."
+            fi
+          else
+            echo "✓ No existing release for tag '$TAG'."
+          fi
+
+          # Exposition aux étapes suivantes via $GITHUB_ENV.
+          {
+            echo "RELEASE_BODY<<EOF"
+            echo "$BODY"
+            echo "EOF"
+            echo "RELEASE_TAG=$TAG"
+            echo "RELEASE_CHANNEL=$CHANNEL"
+            if [[ "$CHANNEL" == "stable" ]]; then
+              echo "IS_PRERELEASE=false"
+            else
+              echo "IS_PRERELEASE=true"
+            fi
+          } >> "$GITHUB_ENV"
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: [deb-build, validate-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer les .deb depuis les artefacts
+        uses: actions/download-artifact@v7
+        with:
+          path: ./
+          merge-multiple: true
+
+      - name: Lister les .deb téléchargés
+        run: ls -la ./
+
+      - name: Publier la release GitHub et uploader les .deb
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            ./postit-amd64/*.deb
+            ./postit-arm64/*.deb
+          body: ${{ env.RELEASE_BODY }}
+          prerelease: ${{ env.IS_PRERELEASE }}
