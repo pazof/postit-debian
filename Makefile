@@ -42,6 +42,27 @@ deb:
 	# pattern would otherwise be re-used by dpkg-deb if the
 	# previous run left it lying around).
 	rm -f ../postit_*$(POSTIT_GIT_TAG)-1*.deb ../postit_*.buildinfo ../postit_*.changes
+	# Use dpkg-architecture to set the target arch correctly for
+	# cross-builds. For POSTIT_RUNTIME=linux-arm64, this exports
+	# DEB_HOST_ARCH=arm64 (and friends) so dpkg-buildpackage names
+	# the .deb postit_*_arm64.deb instead of postit_*_amd64.deb.
+	# For linux-x64, it sets the host arch to amd64 explicitly
+	# (which matches the runner — no-op, but keeps the call site
+	# uniform). Other RIDs are rejected.
+	case "$(POSTIT_RUNTIME)" in
+	    linux-arm64) DPKG_ARCH_ARGS="-aarm64" ;;
+	    linux-x64)   DPKG_ARCH_ARGS="-aamd64" ;;
+	    *) echo "  ERROR: unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;;
+	esac
+	# dpkg-architecture with no -t/-a flags just prints the arch
+	# info; with -aarm64, it exports the variables needed for a
+	# cross-build targeting arm64. Use 'eval' to put those vars
+	# in the environment of the next command.
+	# Chain 'eval' and 'dpkg-buildpackage' on a single shell line
+	# so the exported vars from dpkg-architecture are visible
+	# to dpkg-buildpackage. Each recipe line runs in its own
+	# shell, so an 'eval' on one line wouldn't affect the next.
+	eval $(dpkg-architecture $$DPKG_ARCH_ARGS) && \
 	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) \
 	    dpkg-buildpackage -us -uc -b
 	# dpkg-buildpackage already writes the produced .deb to
