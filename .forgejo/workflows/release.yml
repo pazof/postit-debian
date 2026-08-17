@@ -10,11 +10,9 @@
 # then publishes a Forgejo release via the REST API and uploads both
 # .deb files as assets.
 #
-# Authentication: the runner exposes an auto-provided token in the
-# secrets context under the name GITHUB_TOKEN (a holdover name from
-# the upstream Action runner codebase, NOT a reference to github.com).
-# We store it in the env var FORGEJO_TOKEN to keep the rest of this
-# script free of any GitHub-flavoured naming.
+# Authentication: the runner auto-provides a token scoped to the
+# repository. We read it via ${{ forgejo.token }} and store it in
+# the local env var FORGEJO_TOKEN for the rest of the script.
 #
 # Why bash + jq + curl, no third-party actions: the runner's docker
 # label points at pazof/yavsc-build-env, a Debian image with jq but
@@ -30,6 +28,11 @@
 # fixe ; si le binaire change (rebuild après modif du packaging),
 # on met à jour la release existante plutôt que d'en multiplier
 # pour un même tag. Le permalien /releases/tag/<tag> reste stable.
+#
+# Inter-step state: we persist values between steps via a plain
+# env file under /tmp, sourced at the top of each step that needs
+# it. This keeps the workflow self-contained and avoids any
+# runtime variable names we did not choose.
 name: Forgejo Release postit-deb
 
 on:
@@ -59,6 +62,8 @@ jobs:
     runs-on: docker
     container:
       image: docker.io/pazof/yavsc-build-env:debian12-dotnet10-android36-v2
+    env:
+      STATE_FILE: /tmp/release-state.env
     steps:
       - name: Installer les pré-requis de build (debhelper + icônes)
         # L'image runner fournit déjà dotnet-sdk-10.0, git, jq,
@@ -71,6 +76,7 @@ jobs:
               build-essential debhelper imagemagick librsvg2-bin \
               ca-certificates
           rm -rf /var/lib/apt/lists/*
+          : > "$STATE_FILE"
 
       - name: Clone du repo au tag demandé
         env:
@@ -94,11 +100,12 @@ jobs:
           git checkout "$TAG"
 
           echo "Checked out at $(git rev-parse HEAD) on tag $TAG"
+          echo "TAG=$TAG" >> "$STATE_FILE"
 
       - name: Valider le tag et la section CHANGELOG
         run: |
+          source "$STATE_FILE"
           cd /src/_src
-          TAG="$(git describe --tags --exact-match HEAD 2>/dev/null || git rev-parse --short HEAD)"
           echo "Validating tag $TAG"
 
           # Parse semver : MAJOR.MINOR.PATCH[-SUFFIX]
@@ -169,75 +176,58 @@ jobs:
 
           echo "Section CHANGELOG validée pour [$TAG] - $CHANNEL"
 
-          # Expose channel + body pour les étapes suivantes via
-          # le fichier d'environnement inter-steps fourni par le
-          # runner (le nom technique de la variable runtime est
-          # GITHUB_ENV, on ne le contrôle pas — c'est un héritage
-          # du runner Action upstream).
-          echo "RELEASE_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
-          echo "RELEASE_BODY<<EOF" >> "$GITHUB_ENV"
-          echo "$RELEASE_BODY" >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
-          echo "IS_PRERELEASE=$IS_PRERELEASE" >> "$GITHUB_ENV"
+          # Persist values for the next steps via our local state file.
+          {
+            echo "RELEASE_BODY<<EOF"
+            echo "$RELEASE_BODY"
+            echo "EOF"
+            echo "IS_PRERELEASE=$IS_PRERELEASE"
+          } >> "$STATE_FILE"
 
       - name: Build .deb amd64
         env:
-          POSTIT_GIT_TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
           POSTIT_RUNTIME: linux-x64
         run: |
+          source "$STATE_FILE"
           cd /src/_src
-          echo "→ Building amd64 for POSTIT_GIT_TAG=$POSTIT_GIT_TAG"
-          make deb POSTIT_GIT_TAG="$POSTIT_GIT_TAG" POSTIT_RUNTIME=linux-x64
+          echo "→ Building amd64 for POSTIT_GIT_TAG=$TAG"
+          make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-x64
 
       - name: Build .deb arm64
         env:
-          POSTIT_GIT_TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
           POSTIT_RUNTIME: linux-arm64
         run: |
+          source "$STATE_FILE"
           cd /src/_src
-          echo "→ Building arm64 for POSTIT_GIT_TAG=$POSTIT_GIT_TAG"
+          echo "→ Building arm64 for POSTIT_GIT_TAG=$TAG"
           # Cross-RID .NET depuis un hôte amd64 : standard, pas
           # besoin de runner arm64 natif.
-          make deb POSTIT_GIT_TAG="$POSTIT_GIT_TAG" POSTIT_RUNTIME=linux-arm64
+          make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64
 
       - name: Localiser les .deb produits
-        env:
-          LOOKUP_TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
         run: |
+          source "$STATE_FILE"
           cd /src
-          DEB_AMD64=$(find . -maxdepth 3 -name "postit_*${LOOKUP_TAG}-1_amd64.deb" \
+          DEB_AMD64=$(find . -maxdepth 3 -name "postit_*${TAG}-1_amd64.deb" \
                       -not -path "./_src/debian/*" -printf '%p\n' | head -1)
-          DEB_ARM64=$(find . -maxdepth 3 -name "postit_*${LOOKUP_TAG}-1_arm64.deb" \
+          DEB_ARM64=$(find . -maxdepth 3 -name "postit_*${TAG}-1_arm64.deb" \
                       -not -path "./_src/debian/*" -printf '%p\n' | head -1)
           if [[ -z "$DEB_AMD64" || -z "$DEB_ARM64" ]]; then
             echo "::error::Missing .deb files. amd64='$DEB_AMD64' arm64='$DEB_ARM64'"
             ls -la /src/ 2>/dev/null || true
             exit 1
           fi
-          echo "DEB_AMD64=/src/$DEB_AMD64" >> "$GITHUB_ENV"
-          echo "DEB_ARM64=/src/$DEB_ARM64" >> "$GITHUB_ENV"
+          echo "DEB_AMD64=/src/$DEB_AMD64" >> "$STATE_FILE"
+          echo "DEB_ARM64=/src/$DEB_ARM64" >> "$STATE_FILE"
           echo "✓ Found both .deb files"
 
       - name: Publier la release Forgejo via l'API REST
         env:
-          # Le runner expose un token auto-fourni dans le contexte
-          # `secrets` sous le nom GITHUB_TOKEN (héritage du runtime
-          # Action upstream — on ne peut pas le renommer). On le
-          # stocke dans FORGEJO_TOKEN pour le reste du script, et
-          # on évite ainsi toute référence "github" dans nos noms.
-          FORGEJO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORGEJO_TOKEN: "${{ forgejo.token }}"
           FORGEJO_API_URL: ${{ forgejo.api_url }}
           FORGEJO_REPOSITORY: ${{ forgejo.repository }}
-          TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
-          # RELEASE_BODY peut contenir des retours à la ligne et
-          # des caractères YAML-réservés (':', '#', etc.) issus du
-          # CHANGELOG.md. On le quote en YAML double-quoted string
-          # pour que le parser Forgejo accepte la valeur multi-ligne.
-          # Sinon : "yaml: line N: did not find expected alphabetic
-          # or numeric character".
-          RELEASE_BODY: "${{ env.RELEASE_BODY }}"
-          IS_PRERELEASE: "${{ env.IS_PRERELEASE }}"
         run: |
+          source "$STATE_FILE"
           if [[ -z "$TAG" ]]; then
             echo "::error::No tag resolved for the API call."
             exit 1
