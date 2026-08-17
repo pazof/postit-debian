@@ -54,7 +54,12 @@ deb:
 	# vars set by dpkg-architecture are visible to dpkg-buildpackage.
 	# make runs each recipe line in its own shell, so we use
 	# backslash continuation to glue everything together.
-	DPKG_ARCH_ARGS=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo "-aarm64" ;; linux-x64) echo "-aamd64" ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac); eval $$(dpkg-architecture $$DPKG_ARCH_ARGS); POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b
+	# dpkg-architecture -c <cmd> sets up DEB_* vars and runs <cmd>
+	# in the same shell, so the env is visible to dpkg-buildpackage.
+	# Use -a (host arch) for cross-builds — it tells dpkg-architecture
+	# to export DEB_HOST_ARCH=arm64 (and friends) even though we're
+	# running on amd64. -c avoids the need for a separate eval.
+	DPKG_ARCH_ARGS=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo "-aarm64" ;; linux-x64) echo "-aamd64" ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac); dpkg-architecture $$DPKG_ARCH_ARGS -c "POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b"
 	# dpkg-buildpackage already writes the produced .deb to
 	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
 	# flag to change it). So no 'mv' is needed. The old 'mv'
