@@ -142,7 +142,14 @@ override_dh_strip:
 	# On les exclut donc du strip. Les symboles debug seront
 	# présents dans le .deb mais ce sont des libs upstream, pas
 	# notre code — pas critique.
-	dh_strip --exclude=.pdb --exclude=*.so
+	# --no-automatic-dbgsym : dh_strip crée automatiquement un
+	# paquet postit-dbg avec --only-keep-debug, qui appelle
+	# objcopy une seconde fois sur les .so. Le --exclude ci-dessus
+	# ne s'applique PAS à cette phase. Désactiver le dbgsym
+	# automatique évite l'erreur et reste cohérent (les libs
+	# upstream n'ont pas de symboles debug utiles pour le debug
+	# utilisateur).
+	dh_strip --exclude=.pdb --exclude=*.so --no-automatic-dbgsym
 
 
 define stage_postit
