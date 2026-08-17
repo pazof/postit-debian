@@ -74,88 +74,24 @@ jobs:
         # via `convert`, librsvg2-bin pour le SVG).
         run: |
           apt-get update
+          # crossbuild-essential-arm64 is the official Debian
+          # meta-package for arm64 cross-compilation. It pulls
+          # in gcc-aarch64-linux-gnu, binutils-aarch64-linux-gnu,
+          # libc6-dev:arm64, linux-libc-dev:arm64, and sets up
+          # dpkg-cross (CONFIG_SITE under /etc/dpkg-cross/).
+          # For our package, the key bits are:
+          # - binutils-aarch64-linux-gnu (provides
+          #   aarch64-linux-gnu-objdump needed by dh_makeshlibs)
+          # - libc6-dev:arm64 and friends (so dpkg-shlibdeps can
+          #   resolve the arm64 binaries' NEEDED entries against
+          #   the cross-arch shlibs cache installed on the host).
+          # The arm64 gcc isn't strictly needed (we have no C
+          # code to compile — only dotnet publish), but it doesn't
+          # hurt and keeps the environment consistent for any
+          # future C-coded debhelper rules.
           apt-get install -y --no-install-recommends \
               build-essential debhelper imagemagick librsvg2-bin \
-              ca-certificates binutils-aarch64-linux-gnu
-          # For the arm64 cross-build, dpkg-shlibdeps needs to
-          # resolve ELF NEEDED entries from the arm64 binaries
-          # (libc.so.6, libstdc++.so.6, libdl, libpthread, etc.)
-          # by name. We don't install arm64 on the host (heavy),
-          # but dpkg-shlibdeps accepts -l<dir> to point at
-          # additional library search paths. Download the
-          # deb.debian.org arm64 .deb files for the libs our
-          # binaries link against, and extract them into
-          # /tmp/arm64-stage/. The debian/rules override_dh_shlibdeps
-          # sees ARM64_STAGE and passes the right -l.
-          #
-          # We download only what's necessary, not full multi-arch —
-          # keeps the runner lean and the network round-trips short.
-          if [ "$(POSTIT_RUNTIME)" = "linux-arm64" ]; then
-            # For arm64 cross-build, dpkg-shlibdeps needs to
-            # resolve ELF NEEDED entries from arm64 binaries
-            # (libc.so.6, libstdc++.so.6, libdl, libpthread,
-            # libfontconfig, etc.) by name. We don't install
-            # arm64 on the host (heavy), but dpkg-shlibdeps
-            # accepts -l<dir> for additional library search
-            # paths — like sbuild/pbuilder do internally.
-            #
-            # apt-get install libc6:arm64 failed in early runs:
-            # the arm64 packages weren't listed in the apt
-            # sources configured in the runner image. So we
-            # wget the .deb directly from deb.debian.org and
-            # extract them with dpkg-deb -x into a stage dir.
-            #
-            # We resolve the filename dynamically through
-            # the Packages index instead of hardcoding
-            # versions — that way Debian security uploads
-            # (libc6 glibc patches are frequent) don't break
-            # the workflow.
-            mkdir -p /tmp/arm64-stage
-            set -e
-            for src in libc6 libstdc++6 libfontconfig1 \
-                       libfreetype6 libgtk-3-0; do
-              # Look up the .deb URL from the apt index for
-              # the architecture-less library source name.
-              # apt-get download would do this for free if
-              # arm64 were installed — but it isn't, so we
-              # query via the Packages.gz on deb.debian.org.
-              url=$(wget -qO- \
-                "https://packages.debian.org/bookworm/arm64/${src}/download" \
-                2>/dev/null \
-                | grep -oE 'http[s]?://[^"]*'"${src}"'_[^"]*arm64\.deb' \
-                | head -1)
-              if [ -z "$url" ]; then
-                echo "::error::Could not resolve .deb URL for $src"
-                exit 1
-              fi
-              echo "  --> downloading $url"
-              if ! wget -q "$url" -O "/tmp/${src}.deb"; then
-                echo "::error::wget failed for $url"
-                exit 1
-              fi
-              dpkg-deb -x "/tmp/${src}.deb" /tmp/arm64-stage/
-              rm -f "/tmp/${src}.deb"
-            done
-            ls /tmp/arm64-stage/lib/aarch64-linux-gnu/ 2>/dev/null | head -3 || true
-            ls /tmp/arm64-stage/usr/lib/aarch64-linux-gnu/ 2>/dev/null | head -3 || true
-            echo "  --> arm64 stage ready at /tmp/arm64-stage/"
-          fi
-              # Extract the freshly downloaded .deb into the
-              # stage dir.
-              ls ${src}_*.deb
-          fi
-          # binutils-aarch64-linux-gnu provides aarch64-linux-gnu-objdump,
-          # which dh_makeshlibs needs to read the ELF symbol table of
-          # the PostIt.Desktop arm64 binary. Without it, dh_makeshlibs
-          # fails with "Can't exec 'aarch64-linux-gnu-objdump': No
-          # such file or directory" (~50 Mo, standard cross-toolkit
-          # binutils — no arm64 GCC needed because there's no C code to
-          # compile, only .NET to publish).
-          #
-          # We don't install libc6:arm64 etc. — dpkg-buildpackage -d
-          # skips the build-deps check (we don't need the arm64 SDK),
-          # and -Pcross toggles the cross-build profile so debhelper
-          # adapts to the cross-build context.
+              ca-certificates crossbuild-essential-arm64
           rm -rf /var/lib/apt/lists/*
           : > "$STATE_FILE"
 
@@ -303,7 +239,16 @@ jobs:
           # set -x traces every command so a silent failure inside
           # 'make deb' (e.g. dpkg-buildpackage aborting after the
           # 'mv ... || true' swallows the error) is visible.
-          ARM64_STAGE=/tmp/arm64-stage make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64 || {
+          # Debian-recommended cross-build environment for dpkg-buildpackage:
+          #   - CONFIG_SITE points autoconf at the cross-config for arm64
+          #     (set up by crossbuild-essential-arm64)
+          #   - DEB_HOST_ARCH=arm64 is the target architecture
+          #   - DEB_BUILD_ARCH=amd64 stays the build host
+          #   - DEB_BUILD_OPTIONS=nocheck skips tests in the cross context
+          CONFIG_SITE=/etc/dpkg-cross/cross-config.arm64 \
+            DEB_HOST_ARCH=arm64 DEB_BUILD_ARCH=amd64 \
+            DEB_BUILD_OPTIONS=nocheck \
+            make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64 || {
             echo "::error::make deb for arm64 exited non-zero — see output above"
             exit 1
           }

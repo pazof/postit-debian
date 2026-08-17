@@ -126,21 +126,12 @@ override_dh_auto_test:
 	# client). Build smoke is sufficient for the package.
 
 override_dh_shlibdeps:
-	# If a stage of arm64 libraries has been extracted into
-	# $(ARM64_STAGE)/usr/lib/aarch64-linux-gnu/ (by the
-	# upstream fetch-arm64-libs.sh script wired into the
-	# Forgejo Actions workflow), point dpkg-shlibdeps at it
-	# with -l so it can resolve ELF NEEDED entries from the
-	# arm64 binaries (libc.so.6, libstdc++.so.6, etc.) without
-	# installing arm64 on the amd64 host.
-	if [ -n "$(ARM64_STAGE)" ] && [ -d "$(ARM64_STAGE)/usr/lib/aarch64-linux-gnu" ]; then \
-	    echo "  --> dpkg-shlibdeps: using arm64 stage at $(ARM64_STAGE)"; \
-	    dh_shlibdeps -- -l"$(ARM64_STAGE)/usr/lib/aarch64-linux-gnu"; \
-	else \
-	    dh_shlibdeps -- \
-	        --warnings=0 \
-	        -l"$(DEB_HOST_MULTIARCH_DIR)" 2>/dev/null || true; \
-	fi
+	# The runner image installs crossbuild-essential-arm64, which
+	# provides libc6-dev:arm64 et al. plus dpkg-cross — enough
+	# for dh_shlibdeps to resolve the arm64 binaries' NEEDED
+	# entries against the system's shlibs cache directly. No
+	# stage dir, no -l hack: standard dh_shlibdeps just works.
+	dh_shlibdeps
 
 override_dh_strip:
 	# dh_strip disabled entirely. See MEMORY.md / AGENTS.md for the
