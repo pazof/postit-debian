@@ -129,27 +129,9 @@ override_dh_shlibdeps:
 	dh_shlibdeps
 
 override_dh_strip:
-	# --exclude=.pdb : .NET génère des .pdb même en Release, ils
-	# ne sont pas strippables proprement.
-	# --exclude=*.so  : Avalonia dépend de HarfBuzzSharp et SkiaSharp
-	# qui livrent leurs .so pré-compilés via NuGet (formats natifs
-	# multi-arch : linux-x64, linux-arm64, etc.). Quand on cross-
-	# compile depuis un hôte amd64 (build arm64), dh_strip appelle
-	# objcopy sur ces .so qui sont en ARM64 et objcopy natif amd64
-	# ne sait pas les lire :
-	#   objcopy: Unable to recognise the format of the input file
-	#   `debian/postit/usr/lib/postit/libHarfBuzzSharp.so'
-	# On les exclut donc du strip. Les symboles debug seront
-	# présents dans le .deb mais ce sont des libs upstream, pas
-	# notre code — pas critique.
-	# --no-automatic-dbgsym : dh_strip crée automatiquement un
-	# paquet postit-dbg avec --only-keep-debug, qui appelle
-	# objcopy une seconde fois sur les .so. Le --exclude ci-dessus
-	# ne s'applique PAS à cette phase. Désactiver le dbgsym
-	# automatique évite l'erreur et reste cohérent (les libs
-	# upstream n'ont pas de symboles debug utiles pour le debug
-	# utilisateur).
-	dh_strip --exclude=.pdb --exclude=*.so --no-automatic-dbgsym
+	# dh_strip disabled entirely. See MEMORY.md / AGENTS.md for the
+	# rationale (cross-compiled native .so via NuGet from Avalonia
+	# deps cannot be parsed by amd64 objcopy/strip).
 
 
 define stage_postit
