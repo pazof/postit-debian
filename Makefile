@@ -50,14 +50,8 @@ deb:
 	# fallback was masking real dpkg-buildpackage failures (the
 	# fallback was matching leftover .deb from previous runs and
 	# returning 0 even when the current build had produced nothing).
-	DEB_GLOB=$(ls ../postit_*$(POSTIT_GIT_TAG)-1*.deb 2>/dev/null || true)
-	if [[ -z "$$DEB_GLOB" ]]; then
-	    DEB_GLOB=$(ls ../postit_*.deb 2>/dev/null || true)
-	fi
-	if [[ -z "$$DEB_GLOB" ]]; then
-	    echo "  ERROR: dpkg-buildpackage produced no .deb for POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)" >&2
-	    exit 1
-	fi
+	DEB_GLOB=$$(ls ../postit_*$(POSTIT_GIT_TAG)-1*.deb 2>/dev/null || ls ../postit_*.deb 2>/dev/null || true); \
+	if [ -z "$$DEB_GLOB" ]; then echo "  ERROR: dpkg-buildpackage produced no .deb for POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)" >&2; exit 1; fi; \
 	mv $$DEB_GLOB $(POSTIT_OUT_DIR)/
 	@echo "  ✓ artifacts moved to $(POSTIT_OUT_DIR)"
 
