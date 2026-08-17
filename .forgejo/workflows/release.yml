@@ -77,6 +77,18 @@ jobs:
           apt-get install -y --no-install-recommends \
               build-essential debhelper imagemagick librsvg2-bin \
               ca-certificates
+          # dpkg-shlibdeps at arm64 build time needs the arm64
+          # shlibs (libc6, libstdc++6, libdl, libm, libpthread,
+          # libfontconfig, libgtk-3, etc.) to be present on the
+          # host. We add arm64 as a foreign architecture and pull
+          # them in. --no-install-recommends keeps the install
+          # surface minimal.
+          dpkg --add-architecture arm64
+          apt-get update
+          apt-get install -y --no-install-recommends \
+              libc6:arm64 libstdc++6:arm64 \
+              libfontconfig1:arm64 libfreetype6:arm64 \
+              libgtk-3-0:arm64
           rm -rf /var/lib/apt/lists/*
           : > "$STATE_FILE"
 
