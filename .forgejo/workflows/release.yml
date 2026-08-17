@@ -76,7 +76,42 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
               build-essential debhelper imagemagick librsvg2-bin \
-              ca-certificates binutils-aarch64-linux-gnu
+              ca-certificates binutils-aarch64-linux-gnu wget
+          # For the arm64 cross-build, dpkg-shlibdeps needs to
+          # resolve ELF NEEDED entries from the arm64 binaries
+          # (libc.so.6, libstdc++.so.6, libdl, libpthread, etc.)
+          # by name. We don't install arm64 on the host (heavy),
+          # but dpkg-shlibdeps accepts -l<dir> to point at
+          # additional library search paths. Download the
+          # deb.debian.org arm64 .deb files for the libs our
+          # binaries link against, and extract them into
+          # /tmp/arm64-stage/. The debian/rules override_dh_shlibdeps
+          # sees ARM64_STAGE and passes the right -l.
+          #
+          # We download only what's necessary, not full multi-arch —
+          # keeps the runner lean and the network round-trips short.
+          if [ "$(POSTIT_RUNTIME)" = "linux-arm64" ]; then
+            mkdir -p /tmp/arm64-stage
+            cd /tmp/arm64-stage
+            # Bookworm (Debian 12 — matches the runner image base).
+            BASE=https://deb.debian.org/debian/pool/main
+            for pkg in \
+                "$BASE/g/glibc/libc6_2.36-9+deb12u11_arm64.deb" \
+                "$BASE/g/gcc-12/libstdc++6_12.2.0-14+deb12u1_arm64.deb" \
+                "$BASE/f/fontconfig/libfontconfig1_2.14.1-4_arm64.deb" \
+                "$BASE/f/freetype/libfreetype6_2.12.1+dfsg-5+deb12u4_arm64.deb" \
+                "$BASE/g/gtk+3.0/libgtk-3-0_3.24.38-2~deb12u3_arm64.deb"; do
+              fname=$(basename "$pkg")
+              if [ ! -f "$fname" ] && ! wget -q "$pkg" -O "$fname"; then
+                echo "::error::Failed to download $pkg"
+                exit 1
+              fi
+              dpkg-deb -x "$fname" /tmp/arm64-stage/
+            done
+            ls /tmp/arm64-stage/usr/lib/aarch64-linux-gnu/ | head -10
+            echo "  arm64 stage ready at /tmp/arm64-stage/"
+            cd "${{GITHUB_WORKSPACE:-/}}"
+          fi
           # binutils-aarch64-linux-gnu provides aarch64-linux-gnu-objdump,
           # which dh_makeshlibs needs to read the ELF symbol table of
           # the PostIt.Desktop arm64 binary. Without it, dh_makeshlibs
@@ -236,7 +271,7 @@ jobs:
           # set -x traces every command so a silent failure inside
           # 'make deb' (e.g. dpkg-buildpackage aborting after the
           # 'mv ... || true' swallows the error) is visible.
-          make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64 || {
+          ARM64_STAGE=/tmp/arm64-stage make deb POSTIT_GIT_TAG="$TAG" POSTIT_RUNTIME=linux-arm64 || {
             echo "::error::make deb for arm64 exited non-zero — see output above"
             exit 1
           }
