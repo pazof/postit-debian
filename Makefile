@@ -42,19 +42,8 @@ deb:
 	# pattern would otherwise be re-used by dpkg-deb if the
 	# previous run left it lying around).
 	rm -f ../postit_*$(POSTIT_GIT_TAG)-1*.deb ../postit_*.buildinfo ../postit_*.changes
-	# dpkg-buildpackage doesn't know about dotnet's --runtime.
-	# It uses the host arch by default, so cross-compiled builds
-	# end up named '_amd64.deb' regardless of POSTIT_RUNTIME.
-	# -aarm64 forces the .deb to be tagged and named as arm64.
-	# Override DEB_BUILD_GNU_TYPE so dpkg doesn't try to use
-	# arm64 tools on an amd64 host.
-	case "$(POSTIT_RUNTIME)" in
-	    linux-arm64) DPKG_ARCH=arm64 ;;
-	    linux-x64)   DPKG_ARCH=amd64 ;;
-	    *) echo "  ERROR: unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;;
-	esac
 	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) \
-	    dpkg-buildpackage -us -uc -b -a$$DPKG_ARCH
+	    dpkg-buildpackage -us -uc -b
 	# dpkg-buildpackage already writes the produced .deb to
 	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
 	# flag to change it). So no 'mv' is needed. The old 'mv'
