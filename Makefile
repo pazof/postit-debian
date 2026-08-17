@@ -49,11 +49,7 @@ deb:
 	# For linux-x64, it sets the host arch to amd64 explicitly
 	# (which matches the runner — no-op, but keeps the call site
 	# uniform). Other RIDs are rejected.
-	case "$(POSTIT_RUNTIME)" in
-	    linux-arm64) DPKG_ARCH_ARGS="-aarm64" ;;
-	    linux-x64)   DPKG_ARCH_ARGS="-aamd64" ;;
-	    *) echo "  ERROR: unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;;
-	esac
+	DPKG_ARCH_ARGS=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo "-aarm64" ;; linux-x64) echo "-aamd64" ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac)
 	# dpkg-architecture with no -t/-a flags just prints the arch
 	# info; with -aarm64, it exports the variables needed for a
 	# cross-build targeting arm64. Use 'eval' to put those vars
