@@ -49,18 +49,12 @@ deb:
 	# For linux-x64, it sets the host arch to amd64 explicitly
 	# (which matches the runner — no-op, but keeps the call site
 	# uniform). Other RIDs are rejected.
-	DPKG_ARCH_ARGS=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo "-aarm64" ;; linux-x64) echo "-aamd64" ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac)
-	# dpkg-architecture with no -t/-a flags just prints the arch
-	# info; with -aarm64, it exports the variables needed for a
-	# cross-build targeting arm64. Use 'eval' to put those vars
-	# in the environment of the next command.
-	# Chain 'eval' and 'dpkg-buildpackage' on a single shell line
-	# so the exported vars from dpkg-architecture are visible
-	# to dpkg-buildpackage. Each recipe line runs in its own
-	# shell, so an 'eval' on one line wouldn't affect the next.
-	eval $(dpkg-architecture $$DPKG_ARCH_ARGS) && \
-	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) \
-	    dpkg-buildpackage -us -uc -b
+	# Compute DPKG_ARCH_ARGS, eval dpkg-architecture, then call
+	# dpkg-buildpackage — all in ONE shell invocation so the
+	# vars set by dpkg-architecture are visible to dpkg-buildpackage.
+	# make runs each recipe line in its own shell, so we use
+	# backslash continuation to glue everything together.
+	DPKG_ARCH_ARGS=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo "-aarm64" ;; linux-x64) echo "-aamd64" ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac) && eval $(dpkg-architecture $$DPKG_ARCH_ARGS) && POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b
 	# dpkg-buildpackage already writes the produced .deb to
 	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
 	# flag to change it). So no 'mv' is needed. The old 'mv'
