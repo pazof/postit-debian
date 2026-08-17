@@ -39,25 +39,22 @@ deb:
 	# debian/changelog.in, regardless of POSTIT_GIT_TAG.
 	sed 's/@VERSION@/$(POSTIT_GIT_TAG)/g' debian/changelog.in > debian/changelog
 	# Remove any residual .deb from previous runs (same name
-	# pattern would otherwise make the final 'mv' complain
-	# about source and destination being the same file).
+	# pattern would otherwise be re-used by dpkg-deb if the
+	# previous run left it lying around).
 	rm -f ../postit_*$(POSTIT_GIT_TAG)-1*.deb ../postit_*.buildinfo ../postit_*.changes
 	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) \
 	    dpkg-buildpackage -us -uc -b
-	# Move the produced .deb(s) into $POSTIT_OUT_DIR. The version
-	# segment we match against is the rendered changelog version
-	# (e.g. 1.0.1-rc01-1), not the bare tag.
-	#
-	# Two-stage mv: try the specific version first (more reliable),
-	# fall back to any .deb if the glob doesn't expand (e.g. the
-	# version suffix differs). No final \`|| true\` — a silent
-	# fallback was masking real dpkg-buildpackage failures (the
-	# fallback was matching leftover .deb from previous runs and
-	# returning 0 even when the current build had produced nothing).
-	DEB_GLOB=$$(ls ../postit_*$(POSTIT_GIT_TAG)-1*.deb 2>/dev/null || ls ../postit_*.deb 2>/dev/null || true); \
-	if [ -z "$$DEB_GLOB" ]; then echo "  ERROR: dpkg-buildpackage produced no .deb for POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)" >&2; exit 1; fi; \
-	mv $$DEB_GLOB $(POSTIT_OUT_DIR)/
-	@echo "  ✓ artifacts moved to $(POSTIT_OUT_DIR)"
+	# dpkg-buildpackage already writes the produced .deb to
+	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
+	# flag to change it). So no 'mv' is needed. The old 'mv'
+	# caused a 'same file' error when the destination was the
+	# same as the source (which it always is). Just verify the
+	# .deb was actually produced.
+	if ! ls ../postit_*$(POSTIT_GIT_TAG)-1*.deb >/dev/null 2>&1; then \
+	    echo "  ERROR: dpkg-buildpackage produced no .deb for POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)" >&2; \
+	    exit 1; \
+	fi
+	@echo "  ✓ artifacts in $(POSTIT_OUT_DIR)"
 
 clean:
 	rm -rf build debian/postit
