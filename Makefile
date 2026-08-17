@@ -54,12 +54,18 @@ deb:
 	# vars set by dpkg-architecture are visible to dpkg-buildpackage.
 	# make runs each recipe line in its own shell, so we use
 	# backslash continuation to glue everything together.
-	# dpkg-architecture -c <cmd> sets up DEB_* vars and runs <cmd>
-	# in the same shell, so the env is visible to dpkg-buildpackage.
-	# Use -a (host arch) for cross-builds — it tells dpkg-architecture
-	# to export DEB_HOST_ARCH=arm64 (and friends) even though we're
-	# running on amd64. -c avoids the need for a separate eval.
-	DPKG_ARCH_ARGS=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo "-aarm64" ;; linux-x64) echo "-aamd64" ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac); dpkg-architecture $$DPKG_ARCH_ARGS -c "POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b"
+	# Direct cross-build: tell dpkg-buildpackage -aarm64 to build
+	# for arm64, and set DEB_HOST_ARCH=arm64 (and friends) in the
+	# env so debhelper rules see it. dpkg-architecture -aarm64 is
+	# NOT used because it refuses to set up the env when the CC
+	# system type doesn't match (we don't have an arm64 C
+	# compiler — we cross-publish .NET binaries only).
+	case "$(POSTIT_RUNTIME)" in
+	    linux-arm64) DPKG_HOST=arm64 ;;
+	    linux-x64)   DPKG_HOST=amd64 ;;
+	    *) echo "  ERROR: unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;;
+	esac
+	DEB_HOST_ARCH=$$DPKG_HOST DEB_BUILD_ARCH=amd64 DEB_HOST_GNU_TYPE=aarch64-linux-gnu DEB_BUILD_GNU_TYPE=x86_64-linux-gnu POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b -a$$DPKG_HOST
 	# dpkg-buildpackage already writes the produced .deb to
 	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
 	# flag to change it). So no 'mv' is needed. The old 'mv'
