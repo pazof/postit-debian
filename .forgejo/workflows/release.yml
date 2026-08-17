@@ -10,15 +10,11 @@
 # then publishes a Forgejo release via the REST API and uploads both
 # .deb files as assets.
 #
-# Authentication uses ${{ secrets.GITHUB_TOKEN }} (auto-provided by
-# the Forgejo runner, scoped to contents: write for the current
-# repo). A dedicated PAT (${{ secrets.RELEASE_TOKEN }}) was the
-# preferred option for least-privilege, but creating repo-level
-# secrets is currently broken on this Forgejo instance
-# (InsertEncryptedSecret fails with a UTF-8 byte-sequence error,
-# probably a text-vs-bytea column type on the secret table). Bumping
-# to Forgejo v16 should fix it; until then, the runner-provided
-# token keeps the workflow operational.
+# Authentication: the runner exposes an auto-provided token in the
+# secrets context under the name GITHUB_TOKEN (a holdover name from
+# the upstream Action runner codebase, NOT a reference to github.com).
+# We store it in the env var FORGEJO_TOKEN to keep the rest of this
+# script free of any GitHub-flavoured naming.
 #
 # Why bash + jq + curl, no third-party actions: the runner's docker
 # label points at pazof/yavsc-build-env, a Debian image with jq but
@@ -78,7 +74,7 @@ jobs:
 
       - name: Clone du repo au tag demandé
         env:
-          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
         run: |
           if [[ -z "$TAG" ]]; then
             echo "::error::No tag provided. In workflow_dispatch, set the 'tag' input."
@@ -173,7 +169,11 @@ jobs:
 
           echo "Section CHANGELOG validée pour [$TAG] - $CHANNEL"
 
-          # Expose channel + body pour les étapes suivantes via $GITHUB_ENV.
+          # Expose channel + body pour les étapes suivantes via
+          # le fichier d'environnement inter-steps fourni par le
+          # runner (le nom technique de la variable runtime est
+          # GITHUB_ENV, on ne le contrôle pas — c'est un héritage
+          # du runner Action upstream).
           echo "RELEASE_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
           echo "RELEASE_BODY<<EOF" >> "$GITHUB_ENV"
           echo "$RELEASE_BODY" >> "$GITHUB_ENV"
@@ -182,7 +182,7 @@ jobs:
 
       - name: Build .deb amd64
         env:
-          POSTIT_GIT_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          POSTIT_GIT_TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
           POSTIT_RUNTIME: linux-x64
         run: |
           cd /src/_src
@@ -191,7 +191,7 @@ jobs:
 
       - name: Build .deb arm64
         env:
-          POSTIT_GIT_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          POSTIT_GIT_TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
           POSTIT_RUNTIME: linux-arm64
         run: |
           cd /src/_src
@@ -202,7 +202,7 @@ jobs:
 
       - name: Localiser les .deb produits
         env:
-          LOOKUP_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          LOOKUP_TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
         run: |
           cd /src
           DEB_AMD64=$(find . -maxdepth 3 -name "postit_*${LOOKUP_TAG}-1_amd64.deb" \
@@ -220,10 +220,15 @@ jobs:
 
       - name: Publier la release Forgejo via l'API REST
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_API_URL: ${{ github.api_url }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          # Le runner expose un token auto-fourni dans le contexte
+          # `secrets` sous le nom GITHUB_TOKEN (héritage du runtime
+          # Action upstream — on ne peut pas le renommer). On le
+          # stocke dans FORGEJO_TOKEN pour le reste du script, et
+          # on évite ainsi toute référence "github" dans nos noms.
+          FORGEJO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORGEJO_API_URL: ${{ forgejo.api_url }}
+          FORGEJO_REPOSITORY: ${{ forgejo.repository }}
+          TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
           # RELEASE_BODY peut contenir des retours à la ligne et
           # des caractères YAML-réservés (':', '#', etc.) issus du
           # CHANGELOG.md. On le quote en YAML double-quoted string
@@ -238,11 +243,11 @@ jobs:
             exit 1
           fi
 
-          # Le runner Forgejo expose l'API sur github.api_url (par
+          # Le runner Forgejo expose l'API sur forgejo.api_url (par
           # défaut http://…/api/v1). On retire le suffixe /api/v1
           # s'il est présent pour dériver la base du serveur, puis
           # on reconstruit l'URL de l'API proprement.
-          API_BASE="${GITHUB_API_URL%/}"
+          API_BASE="${FORGEJO_API_URL%/}"
           API_BASE="${API_BASE%/api/v1}"
 
           # 1. Vérifier si la release existe déjà pour ce tag.
@@ -251,9 +256,9 @@ jobs:
           #    tête de fichier.
           echo "::group::Check existing release for tag $TAG"
           HTTP=$(curl -sS -o /tmp/existing.json -w '%{http_code}' \
-            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Authorization: token $FORGEJO_TOKEN" \
             -H "Accept: application/json" \
-            "$API_BASE/api/v1/repos/$GITHUB_REPOSITORY/releases/tags/$TAG")
+            "$API_BASE/api/v1/repos/$FORGEJO_REPOSITORY/releases/tags/$TAG")
           echo "GET releases/tags/$TAG -> HTTP $HTTP"
           EXISTING_ID=""
           if [[ "$HTTP" == "200" ]]; then
@@ -272,11 +277,11 @@ jobs:
               > /tmp/patch.json
             HTTP=$(curl -sS -o /tmp/release.json -w '%{http_code}' \
               -X PATCH \
-              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Authorization: token $FORGEJO_TOKEN" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
               --data-binary @/tmp/patch.json \
-              "$API_BASE/api/v1/repos/$GITHUB_REPOSITORY/releases/$EXISTING_ID")
+              "$API_BASE/api/v1/repos/$FORGEJO_REPOSITORY/releases/$EXISTING_ID")
             echo "PATCH release -> HTTP $HTTP"
             echo "::endgroup::"
           else
@@ -290,11 +295,11 @@ jobs:
               > /tmp/post.json
             HTTP=$(curl -sS -o /tmp/release.json -w '%{http_code}' \
               -X POST \
-              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Authorization: token $FORGEJO_TOKEN" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
               --data-binary @/tmp/post.json \
-              "$API_BASE/api/v1/repos/$GITHUB_REPOSITORY/releases")
+              "$API_BASE/api/v1/repos/$FORGEJO_REPOSITORY/releases")
             echo "POST release -> HTTP $HTTP"
             echo "::endgroup::"
           fi
@@ -317,11 +322,11 @@ jobs:
             echo "::group::Upload asset for arch=$arch: $deb"
             HTTP=$(curl -sS -o /tmp/asset.json -w '%{http_code}' \
               -X POST \
-              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Authorization: token $FORGEJO_TOKEN" \
               -H "Content-Type: application/octet-stream" \
               -H "Accept: application/json" \
               --data-binary "@$deb" \
-              "$API_BASE/api/v1/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$(basename "$deb")")
+              "$API_BASE/api/v1/repos/$FORGEJO_REPOSITORY/releases/$RELEASE_ID/assets?name=$(basename "$deb")")
             echo "POST asset ($arch) -> HTTP $HTTP"
             echo "::endgroup::"
 
@@ -332,4 +337,4 @@ jobs:
             fi
           done
 
-          echo "Release publiée : $API_BASE/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          echo "Release publiée : $API_BASE/$FORGEJO_REPOSITORY/releases/tag/$TAG"
