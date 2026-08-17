@@ -43,8 +43,22 @@ deb:
 	# Move the produced .deb(s) into $POSTIT_OUT_DIR. The version
 	# segment we match against is the rendered changelog version
 	# (e.g. 1.0.1-rc01-1), not the bare tag.
-	mv ../postit_*$(POSTIT_GIT_TAG)-1*.deb $(POSTIT_OUT_DIR)/ 2>/dev/null || \
-	    mv ../postit_*.deb $(POSTIT_OUT_DIR)/ || true
+	#
+	# Two-stage mv: try the specific version first (more reliable),
+	# fall back to any .deb if the glob doesn't expand (e.g. the
+	# version suffix differs). No final \`|| true\` — a silent
+	# fallback was masking real dpkg-buildpackage failures (the
+	# fallback was matching leftover .deb from previous runs and
+	# returning 0 even when the current build had produced nothing).
+	DEB_GLOB=$(ls ../postit_*$(POSTIT_GIT_TAG)-1*.deb 2>/dev/null || true)
+	if [[ -z "$$DEB_GLOB" ]]; then
+	    DEB_GLOB=$(ls ../postit_*.deb 2>/dev/null || true)
+	fi
+	if [[ -z "$$DEB_GLOB" ]]; then
+	    echo "  ERROR: dpkg-buildpackage produced no .deb for POSTIT_GIT_TAG=$(POSTIT_GIT_TAG)" >&2
+	    exit 1
+	fi
+	mv $$DEB_GLOB $(POSTIT_OUT_DIR)/
 	@echo "  ✓ artifacts moved to $(POSTIT_OUT_DIR)"
 
 clean:
