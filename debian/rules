@@ -129,7 +129,20 @@ override_dh_shlibdeps:
 	dh_shlibdeps
 
 override_dh_strip:
-	dh_strip --exclude=.pdb
+	# --exclude=.pdb : .NET génère des .pdb même en Release, ils
+	# ne sont pas strippables proprement.
+	# --exclude=*.so  : Avalonia dépend de HarfBuzzSharp et SkiaSharp
+	# qui livrent leurs .so pré-compilés via NuGet (formats natifs
+	# multi-arch : linux-x64, linux-arm64, etc.). Quand on cross-
+	# compile depuis un hôte amd64 (build arm64), dh_strip appelle
+	# objcopy sur ces .so qui sont en ARM64 et objcopy natif amd64
+	# ne sait pas les lire :
+	#   objcopy: Unable to recognise the format of the input file
+	#   `debian/postit/usr/lib/postit/libHarfBuzzSharp.so'
+	# On les exclut donc du strip. Les symboles debug seront
+	# présents dans le .deb mais ce sont des libs upstream, pas
+	# notre code — pas critique.
+	dh_strip --exclude=.pdb --exclude=*.so
 
 
 define stage_postit
