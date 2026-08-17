@@ -20,7 +20,7 @@
 #      of the dh_* helpers assemble the .deb.
 
 POSTIT_GIT_URL ?= https://github.com/pazof/yavsc.git
-POSTIT_GIT_TAG ?= 1.0.0
+POSTIT_GIT_TAG ?= 1.0.6
 # Runtime identifier passed to `dotnet publish --runtime`. Override
 # at build time for non-amd64 targets:
 #   make deb POSTIT_RUNTIME=linux-arm64
