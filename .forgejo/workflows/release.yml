@@ -77,33 +77,17 @@ jobs:
           apt-get install -y --no-install-recommends \
               build-essential debhelper imagemagick librsvg2-bin \
               ca-certificates
-          # dpkg-shlibdeps at arm64 build time needs the arm64
-          # shlibs (libc6, libstdc++6, libdl, libm, libpthread,
-          # libfontconfig, libgtk-3, etc.) to be present on the
-          # host. We add arm64 as a foreign architecture and pull
-          # them in. --no-install-recommends keeps the install
-          # surface minimal.
-          set -e
-          dpkg --add-architecture arm64 || { echo "::error::dpkg --add-architecture arm64 failed"; exit 1; }
-          apt-get update
-          # Verify each arm64 package is actually installable. Bail
-          # early with a clear message if any are missing from the
-          # configured apt sources — silent apt-get install
-          # failures are the worst kind of workflow bug.
-          for pkg in libc6:arm64 libstdc++6:arm64 \
-                     libfontconfig1:arm64 libfreetype6:arm64 \
-                     libgtk-3-0:arm64; do
-            if ! apt-cache show "$pkg" >/dev/null 2>&1; then
-              echo "::error::arm64 package '$pkg' is not available in apt sources"
-              exit 1
-            fi
-          done
-          apt-get install -y --no-install-recommends \
-              libc6:arm64 libstdc++6:arm64 \
-              libfontconfig1:arm64 libfreetype6:arm64 \
-              libgtk-3-0:arm64 || { echo "::error::Failed to install arm64 shlibs"; exit 1; }
-          # Sanity-check: the libs must be visible to dpkg-shlibdeps.
-          dpkg -l libc6:arm64 libstdc++6:arm64 | tail -3
+          # No arm64 shlibs install needed: \`dotnet publish
+          # --runtime linux-arm64\` cross-compiles natively on amd64
+          # (no arm64 toolchain required), and dpkg-buildpackage
+          # is invoked with -Pcross so debhelper skips the
+          # arch-specific helper tools (aarch64-linux-gnu-objdump
+          # for dh_makeshlibs, etc.) that aren't available on the
+          # host. dh_shlibdeps works without arm64 libs because
+          # we don't ship arm64 build dependencies in debian/control
+          # (the dotnet-sdk-10.0 there is only meaningful for amd64
+          # native builds; dpkg-buildpackage -d skips that check
+          # for arm64 cross).
           rm -rf /var/lib/apt/lists/*
           : > "$STATE_FILE"
 
