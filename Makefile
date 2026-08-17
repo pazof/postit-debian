@@ -38,6 +38,10 @@ deb:
 	# step the .deb always comes out as the version hardcoded in
 	# debian/changelog.in, regardless of POSTIT_GIT_TAG.
 	sed 's/@VERSION@/$(POSTIT_GIT_TAG)/g' debian/changelog.in > debian/changelog
+	# Remove any residual .deb from previous runs (same name
+	# pattern would otherwise make the final 'mv' complain
+	# about source and destination being the same file).
+	rm -f ../postit_*$(POSTIT_GIT_TAG)-1*.deb ../postit_*.buildinfo ../postit_*.changes
 	POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) \
 	    dpkg-buildpackage -us -uc -b
 	# Move the produced .deb(s) into $POSTIT_OUT_DIR. The version
