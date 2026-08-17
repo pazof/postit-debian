@@ -54,7 +54,7 @@ deb:
 	# vars set by dpkg-architecture are visible to dpkg-buildpackage.
 	# make runs each recipe line in its own shell, so we use
 	# backslash continuation to glue everything together.
-	DPKG_ARCH_ARGS=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo "-aarm64" ;; linux-x64) echo "-aamd64" ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac) && eval $(dpkg-architecture $$DPKG_ARCH_ARGS) && POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b
+	DPKG_ARCH_ARGS=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo "-aarm64" ;; linux-x64) echo "-aamd64" ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac); eval $(dpkg-architecture $$DPKG_ARCH_ARGS); POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b
 	# dpkg-buildpackage already writes the produced .deb to
 	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
 	# flag to change it). So no 'mv' is needed. The old 'mv'
