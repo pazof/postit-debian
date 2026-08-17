@@ -76,18 +76,19 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
               build-essential debhelper imagemagick librsvg2-bin \
-              ca-certificates
-          # No arm64 shlibs install needed: \`dotnet publish
-          # --runtime linux-arm64\` cross-compiles natively on amd64
-          # (no arm64 toolchain required), and dpkg-buildpackage
-          # is invoked with -Pcross so debhelper skips the
-          # arch-specific helper tools (aarch64-linux-gnu-objdump
-          # for dh_makeshlibs, etc.) that aren't available on the
-          # host. dh_shlibdeps works without arm64 libs because
-          # we don't ship arm64 build dependencies in debian/control
-          # (the dotnet-sdk-10.0 there is only meaningful for amd64
-          # native builds; dpkg-buildpackage -d skips that check
-          # for arm64 cross).
+              ca-certificates binutils-aarch64-linux-gnu
+          # binutils-aarch64-linux-gnu provides aarch64-linux-gnu-objdump,
+          # which dh_makeshlibs needs to read the ELF symbol table of
+          # the PostIt.Desktop arm64 binary. Without it, dh_makeshlibs
+          # fails with "Can't exec 'aarch64-linux-gnu-objdump': No
+          # such file or directory" (~50 Mo, standard cross-toolkit
+          # binutils — no arm64 GCC needed because there's no C code to
+          # compile, only .NET to publish).
+          #
+          # We don't install libc6:arm64 etc. — dpkg-buildpackage -d
+          # skips the build-deps check (we don't need the arm64 SDK),
+          # and -Pcross toggles the cross-build profile so debhelper
+          # adapts to the cross-build context.
           rm -rf /var/lib/apt/lists/*
           : > "$STATE_FILE"
 
