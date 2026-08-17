@@ -1,5 +1,11 @@
 name: Build and Release postit-deb
 
+# Ce workflow est destiné à **GitHub Actions uniquement** (paths
+# /home/runner/..., ubuntu-latest, softprops/action-gh-release@v2).
+# Pour Forgejo Actions (pazof/yavsc-build-env, paths différents,
+# pas de Node), il faudrait un pendant dans .forgejo/workflows/ —
+# non écrit à ce jour.
+
 on:
   push:
     branches:
