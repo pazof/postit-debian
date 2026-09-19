@@ -91,36 +91,6 @@ jobs:
     env:
       STATE_FILE: /tmp/release-state
     steps:
-      - name: Installer les pré-requis de build (debhelper + icônes)
-        # L'image runner fournit déjà dotnet-sdk-10.0, git, jq,
-        # curl. On ajoute les outils spécifiques au packaging
-        # Debian (debhelper, imagemagick pour les icônes .png
-        # via `convert`, librsvg2-bin pour le SVG).
-        run: |
-          apt-get update
-          # Cross-build deps for arm64:
-          # 1. dpkg --add-architecture arm64 + apt-get update — make
-          #    apt aware of arm64 packages.
-          # 2. Install the arm64 RUNTIME libs (libc6:arm64, etc.)
-          #    so dpkg-shlibdeps can resolve the .so dependencies
-          #    of the arm64 binaries via the on-host shlibs cache.
-          #    The runtime libs (not -dev:arm64) is what carries
-          #    the SONAME metadata that dpkg-shlibdeps matches.
-          # 3. crossbuild-essential-arm64 pulls gcc/binutils for
-          #    arm64, plus dpkg-cross CONFIG_SITE files under
-          #    /etc/dpkg-cross/. The cross-gcc is unused for our
-          #    dotnet-only build but harmless.
-          dpkg --add-architecture arm64
-          apt-get update
-          apt-get install -y --no-install-recommends \
-              build-essential debhelper imagemagick librsvg2-bin \
-              ca-certificates crossbuild-essential-arm64 \
-              libc6:arm64 libstdc++6:arm64 \
-              libfontconfig1:arm64 libfreetype6:arm64 \
-              libgtk-3-0:arm64
-          rm -rf /var/lib/apt/lists/*
-          : > "$STATE_FILE"
-
       - name: Clone du repo au tag demandé
         run: |
           if [[ -z "$TAG" ]]; then
