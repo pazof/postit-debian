@@ -22,9 +22,9 @@
 #   POSTIT_OUT_DIR   default: $(CURDIR)/..    (artifacts land here)
 
 POSTIT_GIT_URL ?= https://github.com/pazof/yavsc.git
-POSTIT_GIT_TAG ?= 1.0.6
+POSTIT_GIT_TAG ?= 1.0.8-rc15
 POSTIT_RUNTIME ?= linux-x64
-POSTIT_OUT_DIR ?= $(CURDIR)/..
+POSTIT_OUT_DIR ?= $(CURDIR)/build
 
 .PHONY: deb clean source test
 

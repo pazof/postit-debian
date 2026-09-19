@@ -51,12 +51,36 @@ on:
         description: 'Publier une release avec suffixe (ex. 1.0.0-rc1) malgré le fail-fast par défaut.'
         required: false
         type: boolean
-        default: false
+        default: true
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag pazof/yavsc à packager (requis en dispatch, ex. 1.0.6 ou 1.0.7-rc1).'
+        required: true
+        type: string
+      force_unstable:
+        description: 'Publier une release avec suffixe (ex. 1.0.0-rc1) malgré le fail-fast par défaut.'
+        required: false
+        type: boolean
+        default: true
+env:
+  FORCE_UNSTABLE: ${{ inputs.force_unstable || 'false' }}
+  TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
 
 permissions:
   contents: write
 
 jobs:
+
+  log_inputs:
+    runs-on: docker
+    container:
+      image: docker.io/pazof/yavsc-build-env:debian12-dotnet10-android36-v2
+    steps:
+      - name: Log inputs
+        run: |
+          echo "TAG=$TAG"
+          echo "FORCE_UNSTABLE=$FORCE_UNSTABLE"
   # Job unique : validation tag/CHANGELOG + build amd64 + build
   # arm64 + publication via l'API REST Forgejo (pas d'actions
   # tierces Node).
@@ -65,7 +89,7 @@ jobs:
     container:
       image: docker.io/pazof/yavsc-build-env:debian12-dotnet10-android36-v2
     env:
-      STATE_FILE: /tmp/release-state.json
+      STATE_FILE: /tmp/release-state
     steps:
       - name: Installer les pré-requis de build (debhelper + icônes)
         # L'image runner fournit déjà dotnet-sdk-10.0, git, jq,
@@ -98,13 +122,12 @@ jobs:
           : > "$STATE_FILE"
 
       - name: Clone du repo au tag demandé
-        env:
-          TAG: ${{ forgejo.event_name == 'push' && forgejo.ref_name || inputs.tag }}
         run: |
           if [[ -z "$TAG" ]]; then
             echo "::error::No tag provided. In workflow_dispatch, set the 'tag' input."
             exit 1
           fi
+          echo "→ Cloning repo at tag $TAG"
 
           cd /src
           if [[ ! -d _src/.git ]]; then
@@ -122,11 +145,11 @@ jobs:
 
           # Persist TAG in the state file. --arg ensures proper
           # JSON escaping of any special chars.
-          jq -n --arg tag "$TAG" '{tag: $tag}' > "$STATE_FILE"
+          echo "$TAG" > "tag.txt"
 
       - name: Valider le tag et la section CHANGELOG
         run: |
-          TAG=$(jq -r '.tag' "$STATE_FILE")
+          TAG=$(cat "tag.txt")
           cd /src/_src
           echo "Validating tag $TAG"
 
