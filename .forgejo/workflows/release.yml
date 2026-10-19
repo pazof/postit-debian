@@ -91,13 +91,13 @@ jobs:
     env:
       STATE_FILE: /tmp/release-state
     steps:
-      - name: Clone du repo au tag demandé
+      - name: Clone du repo 
         run: |
           if [[ -z "$TAG" ]]; then
             echo "::error::No tag provided. In workflow_dispatch, set the 'tag' input."
             exit 1
           fi
-          echo "→ Cloning repo at tag $TAG"
+          echo "→ Cloning repo"
 
           cd /src
           if [[ ! -d _src/.git ]]; then
@@ -106,100 +106,6 @@ jobs:
             # pour ce repo (< 50 commits).
             git clone https://forgejo.pschneider.fr/notazof/postit-debian.git _src
           fi
-
-          cd _src
-          git fetch --tags --force --prune origin
-          git checkout "$TAG"
-
-          echo "Checked out at $(git rev-parse HEAD) on tag $TAG"
-
-          # Persist TAG in the state file. --arg ensures proper
-          # JSON escaping of any special chars.
-          echo "$TAG" > "tag.txt"
-
-      - name: Valider le tag et la section CHANGELOG
-        run: |
-          TAG=$(cat "tag.txt")
-          cd /src/_src
-          echo "Validating tag $TAG"
-
-          # Parse semver : MAJOR.MINOR.PATCH[-SUFFIX]
-          if [[ ! "$TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]]; then
-            echo "::error::Tag '$TAG' does not match MAJOR.MINOR.PATCH[-SUFFIX] format."
-            exit 1
-          fi
-
-          MAJOR="${BASH_REMATCH[1]}"
-          MINOR="${BASH_REMATCH[2]}"
-          PATCH="${BASH_REMATCH[3]}"
-          SUFFIX="${BASH_REMATCH[4]}"
-
-          # Classification du canal par parité du patch.
-          if [[ -n "$SUFFIX" ]]; then
-            CHANNEL="unstable"
-          elif (( PATCH % 2 == 0 )); then
-            CHANNEL="stable"
-          else
-            CHANNEL="preview"
-          fi
-
-          echo "Tag $TAG classifié comme channel=$CHANNEL"
-
-          # Fail-fast sur instable sauf opt-in explicite.
-          if [[ "$CHANNEL" == "unstable" && "${FORCE_UNSTABLE:-false}" != "true" ]]; then
-            echo "::error::Tag '$TAG' is unstable (suffix '$SUFFIX'). Refusing to publish."
-            echo "Set force_unstable=true via workflow_dispatch to override."
-            exit 1
-          fi
-
-          # Lecture du CHANGELOG.md (doit exister à la racine du repo).
-          if [[ ! -f CHANGELOG.md ]]; then
-            echo "::error::CHANGELOG.md not found at repo root."
-            exit 1
-          fi
-
-          # Extraction de la section [TAG]. On garde le titre
-          # (ligne `## [TAG] - channel`) pour la vérification du
-          # canal, puis on l'exclut du body envoyé à la release.
-          BODY=$(awk -v tag="[$TAG]" '
-            /^## \[/ {
-              if (in_section) exit
-              if (index($0, tag) > 0) {
-                in_section=1
-                print
-                next
-              }
-            }
-            in_section { print }
-          ' CHANGELOG.md)
-
-          if [[ -z "$BODY" ]]; then
-            echo "::error::No section matching '## [$TAG]' found in CHANGELOG.md."
-            echo "Add a '## [$TAG] - $CHANNEL' section before tagging."
-            exit 1
-          fi
-
-          # Vérification cohérence du canal déclaré dans le titre.
-          TITLE=$(echo "$BODY" | head -1)
-          if [[ "$TITLE" != *" - $CHANNEL"* ]]; then
-            echo "::error::Section title '$TITLE' must declare suffix '- $CHANNEL' to match tag parity."
-            exit 1
-          fi
-
-          RELEASE_BODY=$(echo "$BODY" | tail -n +2)
-          IS_PRERELEASE=$([ "$CHANNEL" = "stable" ] && echo false || echo true)
-
-          echo "Section CHANGELOG validée pour [$TAG] - $CHANNEL"
-
-          # Persist validation results. Use --arg for strings (so
-          # jq handles escaping of backticks, asterisks, colons,
-          # etc.) and --argjson for booleans.
-          jq -n \
-            --arg tag "$TAG" \
-            --arg body "$RELEASE_BODY" \
-            --argjson is_prerelease "$IS_PRERELEASE" \
-            '{tag: $tag, body: $body, is_prerelease: $is_prerelease}' \
-            > "$STATE_FILE"
 
       - name: Build .deb amd64
         env:

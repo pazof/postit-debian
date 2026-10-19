@@ -21,10 +21,11 @@
 #   POSTIT_RUNTIME   default: linux-x64  (override to linux-arm64 etc.)
 #   POSTIT_OUT_DIR   default: $(CURDIR)/..    (artifacts land here)
 
-POSTIT_GIT_URL ?= https://github.com/pazof/yavsc.git
-POSTIT_GIT_TAG ?= 1.0.8-rc15
+POSTIT_GIT_URL ?= https://forgejo.pschneider.fr/notazof/yavsc.git
+POSTIT_GIT_TAG ?= 1.0.8-rc28
 POSTIT_RUNTIME ?= linux-x64
-POSTIT_OUT_DIR ?= $(CURDIR)/build
+# since dpkg-buildpackage produces the .deb in ..
+POSTIT_OUT_DIR ?= $(CURDIR)/..
 
 .PHONY: deb clean source test
 
@@ -44,7 +45,10 @@ deb:
 	# previous build just produced). The pattern is the same one
 	# dpkg-deb will reuse if we don't clean up first: postit_<ver>-
 	# 1_<host_arch>.deb.
-	rm -f ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.deb ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.buildinfo ../postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.changes
+	rm -f $(POSTIT_OUT_DIR)/postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.deb \
+	 $(POSTIT_OUT_DIR)/postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.buildinfo \
+	 $(POSTIT_OUT_DIR)/postit_$(POSTIT_GIT_TAG)-1_$${DPKG_HOST}.changes
+	
 	# Use dpkg-architecture to set the target arch correctly for
 	# cross-builds. For POSTIT_RUNTIME=linux-arm64, this exports
 	# DEB_HOST_ARCH=arm64 (and friends) so dpkg-buildpackage names
@@ -77,7 +81,8 @@ deb:
 	# would normally export (host arch, build arch, host GNU
 	# type, build GNU type) so debhelper rules see a consistent
 	# cross-build environment.
-	DPKG_HOST=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo arm64 ;; linux-x64) echo amd64 ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac) && DEB_HOST_ARCH=$$DPKG_HOST DEB_BUILD_ARCH=amd64 DEB_HOST_GNU_TYPE=aarch64-linux-gnu DEB_BUILD_GNU_TYPE=x86_64-linux-gnu POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b -d -Pcross -a$$DPKG_HOST
+	DPKG_HOST=$$(case "$(POSTIT_RUNTIME)" in linux-arm64) echo arm64 ;; linux-x64) echo amd64 ;; *) echo "unsupported POSTIT_RUNTIME=$(POSTIT_RUNTIME)" >&2; exit 1 ;; esac) && DEB_HOST_ARCH=$$DPKG_HOST DEB_BUILD_ARCH=amd64 DEB_HOST_GNU_TYPE=aarch64-linux-gnu DEB_BUILD_GNU_TYPE=x86_64-linux-gnu POSTIT_GIT_URL=$(POSTIT_GIT_URL) POSTIT_GIT_TAG=$(POSTIT_GIT_TAG) POSTIT_RUNTIME=$(POSTIT_RUNTIME) dpkg-buildpackage -us -uc -b -d -Pcross -a$$DPKG_HOST 
+	
 	# dpkg-buildpackage already writes the produced .deb to
 	# /src/_src/../ = $POSTIT_OUT_DIR (its default — there's no
 	# flag to change it). So no 'mv' is needed. The old 'mv'

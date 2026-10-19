@@ -125,6 +125,21 @@ override_dh_auto_test:
 	# (Yavsc.Org.Tests covers the web front, not the desktop
 	# client). Build smoke is sufficient for the package.
 
+# Native blobs shipped for platforms other than the host arch.
+# The publish output embeds pv_recorder (and friends) for every
+# RID the NuGet supports — raspberry-pi arm32/arm64, mac, windows
+# — because the app picks the right one at runtime. dpkg-shlibdeps
+# cannot resolve those foreign-arch binaries' NEEDED entries
+# (libc.so.6, libm.so.6, ...) against the on-host shlibs cache,
+# and they must not contribute to Depends: anyway (the host never
+# loads them). Exclude them with -X, mirroring the dh_strip
+# disable below. We keep scanning lib/linux/<arch>/ and the
+# top-level .so files, which ARE the host's runtime deps.
+SHLIBDEPS_EXCLUDES = \
+	-Xusr/lib/postit/lib/raspberry-pi/ \
+	-Xusr/lib/postit/lib/mac/ \
+	-Xusr/lib/postit/lib/windows/
+
 override_dh_shlibdeps:
 	# In a cross-build (DEB_HOST_ARCH != DEB_BUILD_ARCH), the
 	# system's arch-specific lib dir is at
@@ -141,13 +156,13 @@ override_dh_shlibdeps:
 	    HOST_LIB_DIR=/usr/lib/$${HOST_MULTIARCH}; \
 	    if [ -d "$$HOST_LIB_DIR" ]; then \
 	        echo "  --> dh_shlibdeps: cross-arch $$HOST_LIB_DIR (DEB_HOST_ARCH=$(DEB_HOST_ARCH))"; \
-	        dh_shlibdeps -- -l"$$HOST_LIB_DIR"; \
+	        dh_shlibdeps $(SHLIBDEPS_EXCLUDES) -- -l"$$HOST_LIB_DIR"; \
 	    else \
 	        echo "  --> dh_shlibdeps: WARN cross-arch dir $$HOST_LIB_DIR missing"; \
-	        dh_shlibdeps; \
+	        dh_shlibdeps $(SHLIBDEPS_EXCLUDES); \
 	    fi \
 	else \
-	    dh_shlibdeps; \
+	    dh_shlibdeps $(SHLIBDEPS_EXCLUDES); \
 	fi
 
 override_dh_strip:
